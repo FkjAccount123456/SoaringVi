@@ -43,16 +43,24 @@ coord drawer_setcursor(drawer *dr, size_t y, size_t x) {
     }
 
     if (dr->cfg.mode == DRAWER_MODE_HSCROLL) {
-        if (y < dr->vscroll.y + dr->cfg.vscroff && y >= dr->cfg.vscroff)
-            dr->vscroll.y = y - dr->cfg.vscroff;
+        if (y < dr->vscroll.y + dr->cfg.vscroff) {
+            if (y > dr->cfg.vscroff)
+                dr->vscroll.y = y - dr->cfg.vscroff;
+            else
+                dr->vscroll.y = 0;
+        }
         if (y + dr->cfg.vscroff + 1 > dr->vscroll.y + dr->h &&
             y + dr->cfg.vscroff + 1 >= dr->h)
             dr->vscroll.y = y + dr->cfg.vscroff + 1 - dr->h;
         size_t w = 0;
         for (size_t i = 0; i < x; i++)
             w += wcwidth(dr->mgr->text.v[y].v[i]);
-        if (w < dr->hscroll + dr->cfg.hscroff && w >= dr->cfg.hscroff)
-            dr->hscroll = w - dr->cfg.hscroff;
+        if (w < dr->hscroll + dr->cfg.hscroff) {
+            if (w > dr->cfg.hscroff)
+                dr->hscroll = w - dr->cfg.hscroff;
+            else
+                dr->hscroll = 0;
+        }
         size_t res_x = w;
         if (x < dr->mgr->text.v[y].len)
             w += wcwidth(dr->mgr->text.v[y].v[x]);
