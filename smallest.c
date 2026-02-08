@@ -5,8 +5,11 @@
 #include <assert.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <wchar.h>
 
-int main() {
+#define colortext_statusline(x) (colortext){.fg = {0, 0, 0}, .bg = {192, 192, 192}, .style = 0, .ch = x}
+
+int main(int argc, char *argv[]) {
     u_init();
 
     size_t term_h, term_w;
@@ -20,9 +23,27 @@ int main() {
     screen scr;
     scr.data = scr.prev = NULL;
     screen_init(&scr, term_h, term_w);
-    drawer_init(&dr, &scr, &mgr, 0, 0, term_h, term_w, DRAWER_MODE_LINWRAP);
+    drawer_init(&dr, &scr, &mgr, 0, 0, term_h - 1, term_w, DRAWER_MODE_LINWRAP);
     dr.cfg.hscroff = dr.cfg.vscroff = 2;
     dr.cfg.linum = true;
+
+    char file[1024] = "untitled";
+    FILE *fp = NULL;
+    if (argc > 1) {
+        strcpy(file, argv[1]);
+        fp = fopen(file, "r");
+        if (fp) {
+            rawstr text = seq_init(rawstr);
+            byte ch;
+            while ((ch = fgetwc(fp)) != EOF) {
+                if (ch != '\r')
+                    seq_append(text, ch);
+            }
+            text_insert(&mgr, coord_new(0, 0), text);
+            free(text.v);
+            fclose(fp);
+        }
+    }
 
     byte insertion[1];
     rawstr insertion_str = {insertion, 1, 2, sizeof(byte)};
@@ -31,9 +52,15 @@ int main() {
     size_t y = 0, x = 0, ideal_x = 0;
     while (running) {
         coord cursor = drawer_setcursor(&dr, y, x);
-        log("scroll: %zu %zu %zu\n", dr.vscroll.y, dr.vscroll.x, dr.hscroll);
-        log("cursor: %zu %zu\n", y, x);
         drawer_draw(&dr);
+
+        screen_change(&scr, term_h - 1, 0, colortext_statusline(' '));
+        size_t i;
+        for (i = 1; file[i - 1]; i++)
+            screen_change(&scr, term_h - 1, i, colortext_statusline(file[i - 1]));
+        for (i++; i < term_w; i++)
+            screen_change(&scr, term_h - 1, i, colortext_statusline(' '));
+
         screen_flush(&scr);
         gotoxy(cursor.y, cursor.x);
         flush();
@@ -88,6 +115,14 @@ int main() {
             } else if (!strcmp(key, "<right>")) {
                 if (x < mgr.text.v[y].len) {
                     ideal_x = ++x;
+                }
+            } else if (!strcmp(key, "<C-z>")) {
+                coord l = text_undo(&mgr);
+                y = l.y, ideal_x = x = l.x;
+            } else if (!strcmp(key, "<C-y>")) {
+                coord l = text_redo(&mgr, -1);
+                if (l.x != -1 && l.y != -1) {
+                    y = l.y, ideal_x = x = l.x;
                 }
             }
         }
