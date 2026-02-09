@@ -5,4 +5,4 @@ for i in os.listdir('.'):
     if i.endswith('.c') and i != 'main.c':
         all_src.append(i)
 
-os.system('gcc ' + ' '.join(all_src) + ' -lncurses -o smallest')
+os.system('gcc ' + ' '.join(all_src) + ' -o smallest')

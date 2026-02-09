@@ -2,6 +2,7 @@
 实在等不了了，赶紧先写一个最小版本
 */
 #include "drawer.h"
+#include "wcwidth/wcwidth.h"
 #include <assert.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -64,67 +65,55 @@ int main(int argc, char *argv[]) {
         screen_flush(&scr);
         gotoxy(cursor.y, cursor.x);
         flush();
-        char *key = NULL;
-        byte ch = u_getch(&key);
-        if (!key) {
+        byte ch = u_getch();
+        if (ch == K_ESC) {
+            running = false;
+        } else if (ch == K_BS) {
+            coord l;
+            if (x) {
+                l = coord_new(y, x - 1);
+            } else if (y) {
+                l = coord_new(y - 1, mgr.text.v[y - 1].len);
+            } else {
+                goto end;
+            }
+            text_delete(&mgr, l, coord_new(y, x));
+            y = l.y, ideal_x = x = l.x;
+        end:;
+        } else if (ch == K_UP) {
+            if (y) {
+                y--;
+                x = mgr.text.v[y].len;
+                if (x > ideal_x)
+                    x = ideal_x;
+            }
+        } else if (ch == K_DOWN) {
+            if (y < mgr.text.len - 1) {
+                y++;
+                x = mgr.text.v[y].len;
+                if (x > ideal_x)
+                    x = ideal_x;
+            }
+        } else if (ch == K_LEFT) {
+            if (x) {
+                ideal_x = --x;
+            }
+        } else if (ch == K_RIGHT) {
+            if (x < mgr.text.v[y].len) {
+                ideal_x = ++x;
+            }
+        } else if (ch == K_CTRL('z')) {
+            coord l = text_undo(&mgr);
+            y = l.y, ideal_x = x = l.x;
+        } else if (ch == K_CTRL('y')) {
+            coord l = text_redo(&mgr, -1);
+            if (l.x != -1 && l.y != -1) {
+                y = l.y, ideal_x = x = l.x;
+            }
+        } else if (isprintable(ch) || ch > 128 && wcwidth(ch)) {
             insertion[0] = ch;
             coord nxt = text_insert(&mgr, coord_new(y, x), insertion_str);
             y = nxt.y, x = ideal_x = nxt.x;
-        } else {
-            if (!strcmp(key, "<esc>")) {
-                running = false;
-            } else if (!strcmp(key, "<cr>")) {
-                insertion[0] = '\n';
-                coord nxt = text_insert(&mgr, coord_new(y, x), insertion_str);
-                log("nxt.y: %zu, nxt.x: %zu\n", nxt.y, nxt.x);
-                y = nxt.y, x = ideal_x = nxt.x;
-            } else if (!strcmp(key, "<space>")) {
-                insertion[0] = ' ';
-                coord nxt = text_insert(&mgr, coord_new(y, x), insertion_str);
-                y = nxt.y, x = ideal_x = nxt.x;
-            } else if (!strcmp(key, "<bs>")) {
-                coord l;
-                if (x) {
-                    l = coord_new(y, x - 1);
-                } else if (y) {
-                    l = coord_new(y - 1, mgr.text.v[y - 1].len);
-                } else {
-                    goto end;
-                }
-                text_delete(&mgr, l, coord_new(y, x));
-                y = l.y, ideal_x = x = l.x;
-            end:;
-            } else if (!strcmp(key, "<up>")) {
-                if (y) {
-                    y--;
-                    x = mgr.text.v[y].len;
-                    if (x > ideal_x)
-                        x = ideal_x;
-                }
-            } else if (!strcmp(key, "<down>")) {
-                if (y < mgr.text.len - 1) {
-                    y++;
-                    x = mgr.text.v[y].len;
-                    if (x > ideal_x)
-                        x = ideal_x;
-                }
-            } else if (!strcmp(key, "<left>")) {
-                if (x) {
-                    ideal_x = --x;
-                }
-            } else if (!strcmp(key, "<right>")) {
-                if (x < mgr.text.v[y].len) {
-                    ideal_x = ++x;
-                }
-            } else if (!strcmp(key, "<C-z>")) {
-                coord l = text_undo(&mgr);
-                y = l.y, ideal_x = x = l.x;
-            } else if (!strcmp(key, "<C-y>")) {
-                coord l = text_redo(&mgr, -1);
-                if (l.x != -1 && l.y != -1) {
-                    y = l.y, ideal_x = x = l.x;
-                }
-            }
         }
     }
 

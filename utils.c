@@ -1,5 +1,4 @@
 #include "utils.h"
-#include <ctype.h>
 #include <stdio.h>
 #include <sys/time.h>
 #include <wchar.h>
@@ -18,6 +17,7 @@ const char *u_style_map[8] = {
 struct termios u_orig_termios, u_raw_termios;
 
 trie u_ch2keymap;
+bool u_ch2keymap_inited = false;
 
 void u_init_term() {
     tcgetattr(STDIN_FILENO, &u_orig_termios);
@@ -53,6 +53,7 @@ void u_init() {
 
 void u_fina() {
     trie_free(&u_ch2keymap);
+    u_ch2keymap_inited = false;
 
     setvbuf(stdout, u_obuf, _IOFBF, U_OBUF_SIZE);
 
@@ -105,87 +106,94 @@ void cotext_print(colortext c) {
     printf("%lc", c.ch);
 }
 
-char u_ctrl_ch2keymap[26][10];
-char u_metactrl_ch2keymap[26][10];
-
 void u_init_ch2keymap() {
     trie_init(&u_ch2keymap);
-#define A(K, V) trie_insert(&u_ch2keymap, (unsigned char *)K, V)
-    A("\x1b", "<esc>");
-    A("\x1b[A", "<up>");
-    A("\x1b[B", "<down>");
-    A("\x1b[D", "<left>");
-    A("\x1b[C", "<right>");
-    A("\x1b[H", "<home>");
-    A("\x1b[F", "<end>");
-    A("\x1bOP", "<F1>");
-    A("\x1bOQ", "<F2>");
-    A("\x1bOR", "<F3>");
-    A("\x1bOS", "<F4>");
-    A("\x1b[1;5A", "<C-up>");
-    A("\x1b[1;5B", "<C-down>");
-    A("\x1b[1;5D", "<C-left>");
-    A("\x1b[1;5C", "<C-right>");
-    A("\x1b[1;5H", "<C-home>");
-    A("\x1b[1;5F", "<C-end>");
-    A("\x1b[1;5P", "<C-F1>");
-    A("\x1b[1;5Q", "<C-F2>");
-    A("\x1b[1;5R", "<C-F3>");
-    A("\x1b[1;5S", "<C-F4>");
-    A("\x1b[1;3A", "<M-up>");
-    A("\x1b[1;3B", "<M-down>");
-    A("\x1b[1;3D", "<M-left>");
-    A("\x1b[1;3C", "<M-right>");
-    A("\x1b[1;3H", "<M-home>");
-    A("\x1b[1;3F", "<M-end>");
-    A("\x1b[1;3P", "<M-F1>");
-    A("\x1b[1;3Q", "<M-F2>");
-    A("\x1b[1;3R", "<M-F3>");
-    A("\x1b[1;3S", "<M-F4>");
-    A("\x1b[15~", "<F5>");
-    A("\x1b[17~", "<F6>");
-    A("\x1b[18~", "<F7>");
-    A("\x1b[19~", "<F8>");
-    A("\x1b[15;5~", "<C-F5>");
-    A("\x1b[17;5~", "<C-F6>");
-    A("\x1b[18;5~", "<C-F7>");
-    A("\x1b[19;5~", "<C-F8>");
-    A("\x1b[15;3~", "<M-F5>");
-    A("\x1b[17;3~", "<M-F6>");
-    A("\x1b[18;3~", "<M-F7>");
-    A("\x1b[19;3~", "<M-F8>");
-    A("\x1b[2~", "<ins>");
-    A("\x1b[2;5~", "<C-ins>");
-    A("\x1b[2;3~", "<M-ins>");
-    A("\x1b[3;5~", "<C-del>");
-    A("\x1b[3;3~", "<M-del>");
-    A("\x1b[5;5~", "<C-pageup>");
-    A("\x1b[5;3~", "<M-pageup>");
-    A("\x1b[6;5~", "<C-pagedown>");
-    A("\x1b[6;3~", "<M-pagedown>");
-    A("\x1b[20~", "<F9>");
-    A("\x1b[21~", "<F10>");
-    A("\x1b[23~", "<F11>");
-    A("\x1b[24~", "<F12>");
-    A("\x1b[20;5~", "<C-F9>");
-    A("\x1b[21;5~", "<C-F10>");
-    A("\x1b[23;5~", "<C-F11>");
-    A("\x1b[24;5~", "<C-F12>");
-    A("\x1b[20;3~", "<M-F9>");
-    A("\x1b[21;3~", "<M-F10>");
-    A("\x1b[23;3~", "<M-F11>");
-    A("\x1b[24;3~", "<M-F12>");
+    u_ch2keymap_inited = true;
+#define A(K, V) trie_insert(&u_ch2keymap, (unsigned char *)K, convert(void *, V))
+    A("\x1d", K_C_RSQBR);
+    A("\x1c", K_C_BACKSLASH);
+    A("\x1f", K_C_SLASH);
+    A("\x7f", K_BS);
+    A("\r", K_CR);
+    A("\x1b\t", K_M_TAB);
+    A("\x1b\n", K_M_CR);
+    A("\x1b ", K_M_SPACE);
+    A("\x1b\x7f", K_M_BS);
+    A("\x1b\x1d", K_M_C_RSQBR);
+    A("\x1b\x1c", K_M_C_BACKSLASH);
+    A("\x1b\x1f", K_M_C_SLASH);
+    A("\x1b\x1b", K_M_ESC);
+    A("\x1b[A", K_UP);
+    A("\x1b[B", K_DOWN);
+    A("\x1b[D", K_LEFT);
+    A("\x1b[C", K_RIGHT);
+    A("\x1b[H", K_HOME);
+    A("\x1b[F", K_END);
+    A("\x1bOP", K_F1);
+    A("\x1bOQ", K_F2);
+    A("\x1bOR", K_F3);
+    A("\x1bOS", K_F4);
+    A("\x1b[1;2A", K_S_UP);
+    A("\x1b[1;2B", K_S_DOWN);
+    A("\x1b[1;2D", K_S_LEFT);
+    A("\x1b[1;2C", K_S_RIGHT);
+    A("\x1b[1;2H", K_S_HOME);
+    A("\x1b[1;2F", K_S_END);
+    A("\x1b[1;5A", K_C_UP);
+    A("\x1b[1;5B", K_C_DOWN);
+    A("\x1b[1;5D", K_C_LEFT);
+    A("\x1b[1;5C", K_C_RIGHT);
+    A("\x1b[1;5H", K_C_HOME);
+    A("\x1b[1;5F", K_C_END);
+    A("\x1b[1;5P", K_C_F1);
+    A("\x1b[1;5Q", K_C_F2);
+    A("\x1b[1;5R", K_C_F3);
+    A("\x1b[1;5S", K_C_F4);
+    A("\x1b[1;3A", K_M_UP);
+    A("\x1b[1;3B", K_M_DOWN);
+    A("\x1b[1;3D", K_M_LEFT);
+    A("\x1b[1;3C", K_M_RIGHT);
+    A("\x1b[1;3H", K_M_HOME);
+    A("\x1b[1;3F", K_M_END);
+    A("\x1b[1;3P", K_M_F1);
+    A("\x1b[1;3Q", K_M_F2);
+    A("\x1b[1;3R", K_M_F3);
+    A("\x1b[1;3S", K_M_F4);
+    A("\x1b[15~", K_F5);
+    A("\x1b[17~", K_F6);
+    A("\x1b[18~", K_F7);
+    A("\x1b[19~", K_F8);
+    A("\x1b[15;5~", K_C_F5);
+    A("\x1b[17;5~", K_C_F6);
+    A("\x1b[18;5~", K_C_F7);
+    A("\x1b[19;5~", K_C_F8);
+    A("\x1b[15;3~", K_M_F5);
+    A("\x1b[17;3~", K_M_F6);
+    A("\x1b[18;3~", K_M_F7);
+    A("\x1b[19;3~", K_M_F8);
+    A("\x1b[2~", K_INS);
+    A("\x1b[2;5~", K_C_INS);
+    A("\x1b[2;3~", K_M_INS);
+    A("\x1b[3~", K_DEL);
+    A("\x1b[3;5~", K_C_DEL);
+    A("\x1b[3;3~", K_M_DEL);
+    A("\x1b[5;5~", K_C_PAGEUP);
+    A("\x1b[5;3~", K_M_PAGEUP);
+    A("\x1b[6;5~", K_C_PAGEDOWN);
+    A("\x1b[6;3~", K_M_PAGEDOWN);
+    A("\x1b[20~", K_F9);
+    A("\x1b[21~", K_F10);
+    A("\x1b[23~", K_F11);
+    A("\x1b[24~", K_F12);
+    A("\x1b[20;5~", K_C_F9);
+    A("\x1b[21;5~", K_C_F10);
+    A("\x1b[23;5~", K_C_F11);
+    A("\x1b[24;5~", K_C_F12);
+    A("\x1b[20;3~", K_M_F9);
+    A("\x1b[21;3~", K_M_F10);
+    A("\x1b[23;3~", K_M_F11);
+    A("\x1b[24;3~", K_M_F12);
 #undef A
-    char tmp[10] = "<C- >";
-    for (char i = 0; i < 26; i++) {
-        tmp[3] = 'a' + i;
-        memcpy(u_ctrl_ch2keymap[i], tmp, 10);
-    }
-    memcpy(tmp, "<M-C- >", 8);
-    for (char i = 0; i < 26; i++) {
-        tmp[5] = 'a' + i;
-        memcpy(u_metactrl_ch2keymap[i], tmp, 10);
-    }
 }
 
 long long get_usec() {
@@ -217,93 +225,42 @@ bool u_kbhit() {
 
 unsigned char u_inputs[10];
 
-byte u_getch(char **res) {
+byte u_getch() {
     char i = 0;
     unsigned char ch = u_basic_getch();
-    switch (ch) {
-    case '\t':
-        *res = "<tab>";
-        return 0;
-    case '\n':
-    case '\r':
-        *res = "<cr>";
-        return 0;
-    case ' ':
-        *res = "<space>";
-        return 0;
-    case '\x1d':
-        *res = "<C-]>";
-        return 0;
-    case '\x1c':
-        *res = "<C-\\>";
-        return 0;
-    case '\x7f':
-        *res = "<bs>";
-        return 0;
-    }
-    if (isprint(ch)) {
+    if (u_ch2keymap.child[ch] && u_ch2keymap.child[ch]->is_leaf) {
+        return convert(byte, u_ch2keymap.child[ch]->data);
+    } else if (isprintable(ch)) {
         return ch;
     } else if (1 <= ch && ch <= 26) {
-        *res = u_ctrl_ch2keymap[ch - 1];
-        return 0;
+        return ch;
     } else if (ch == 27) {
         if (!u_kbhit()) {
-            *res = "<esc>";
-            return 0;
+            return K_ESC;
         }
         ch = u_basic_getch();
-        switch (ch) {
-        case '\t':
-            *res = "<M-tab>";
-            return 0;
-        case '\n':
-        case '\r':
-            *res = "<M-cr>";
-            return 0;
-        case ' ':
-            *res = "<M-space>";
-        case '\x1d':
-            *res = "<M-C-]>";
-            return 0;
-        case '\x1c':
-            *res = "<M-C-\\>";
-            return 0;
-        case '\x7f':
-            *res = "<M-bs>";
-            return 0;
-        case '\x1b':
-            *res = "<M-esc>";
-            return 0;
-        }
-        if (0 <= ch && ch <= 26) {
-            *res = u_metactrl_ch2keymap[ch - 1];
-            return 0;
-        }
         trie *t = u_ch2keymap.child['\x1b'];
-        if (!t->child[ch]) {
-            *res = "<unknown>";
-            return 0;
+        if (t->child[ch] && t->child[ch]->is_leaf) {
+            return convert(byte, t->child[ch]->data);
+        } else if (0 <= ch && ch <= 26) {
+            return K_M_CTRL(ch + 'a');
+        } else if (!t->child[ch]) {
+            return K_UNKNOWN;
         }
         t = t->child[ch];
         while (t) {
             ch = u_basic_getch();
-            if (!t->child[ch]) {
-                break;
-            }
             t = t->child[ch];
-            if (t->is_leaf) {
-                *res = t->data;
-                return 0;
-            }
+            if (!t)
+                break;
+            else if (t->is_leaf)
+                return convert(byte, t->data);
         }
-        *res = "<unknown>";
-        return 0;
+        return K_UNKNOWN;
     } else {
         char nxt = utf8_next(ch);
-        if (nxt == -1) {
-            *res = "<unknown>";
-            return 0;
-        }
+        if (nxt == -1)
+            return K_UNKNOWN;
         u_inputs[i++] = ch;
         for (; i < nxt; i++)
             u_inputs[i] = u_basic_getch();
