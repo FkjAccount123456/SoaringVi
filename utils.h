@@ -3,11 +3,12 @@
 
 #include "debug.h"
 #include "hashmap.h"
-#include <memory.h>
+#include <string.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <ctype.h>
 #include <stdlib.h>
+#include <wchar.h>
 
 #define error(...)                                                             \
     do {                                                                       \
@@ -109,11 +110,11 @@
     } while (0)
 
 // 懒，直接用unicode吧，UTF-8太费劲
-typedef wchar_t byte;
+typedef int char_t;
 
 // SoaringVi的字符串不使用0结尾，而是指定长度
 // 显然，我将在C语言中使用神似Python的代码风格
-typedef struct seq(byte) rawstr;
+typedef struct seq(char_t) rawstr;
 typedef struct seq(rawstr) str_list;
 
 #define U_OBUF_SIZE 65536
@@ -133,7 +134,7 @@ void gotoxy(size_t y, size_t x);
 typedef struct colortext {
     unsigned char bg[3], fg[3];
     char style;
-    byte ch;
+    char_t ch;
 } colortext;
 
 bool cotext_eq(colortext a, colortext b);
@@ -147,20 +148,22 @@ typedef struct coord {
 
 #define coord_new(y, x) ((coord){y, x})
 
-void wstrcpy(byte *dst, byte *src);
+extern mbstate_t u_mbstate;
+
+void wstrcpy(char_t *dst, char_t *src);
 
 void u_init_ch2keymap();
 
-unsigned char u_basic_getch();
+char_t u_basic_getch();
 
 bool u_kbhit();
 // 是正常输入用返回值返回，否则用指针返回
-byte u_getch();
+char_t u_getch();
 
 #define wait_until(ev) while (!(ev))
 
 char utf8_next(unsigned char ch);
-char utf8_cvt(const unsigned char *code, byte *output);
+char utf8_cvt(const unsigned char *code, char_t *output);
 
 #define get_time(expr)                                                         \
     ({                                                                         \

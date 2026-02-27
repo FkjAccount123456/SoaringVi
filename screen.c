@@ -1,9 +1,10 @@
 #include "screen.h"
 #include "wcwidth/wcwidth.h"
-#include <stdlib.h>
-#include <stdio.h>
-#include <wchar.h>
 #include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <wchar.h>
+
 
 void screen_free(screen *scr) {
     free(scr->data);
@@ -81,7 +82,11 @@ void screen_flush(screen *scr) {
                     cotext_print(scr_data(y, x));
                     last_co = scr_data(y, x);
                 } else {
+#ifndef _WIN32
                     printf("%lc", scr_data(y, x).ch);
+#else
+                    wprintf(L"%lc", scr_data(y, x).ch);
+#endif
                 }
             }
         }
@@ -103,7 +108,11 @@ void screen_flush(screen *scr) {
                     cotext_print(scr_data(y, x));
                     last_co = scr_data(y, x);
                 } else {
+#ifndef _WIN32
                     printf("%lc", scr_data(y, x).ch);
+#else
+                    wprintf(L"%lc", scr_data(y, x).ch);
+#endif
                 }
                 last_pos = coord_new(y, x);
             }

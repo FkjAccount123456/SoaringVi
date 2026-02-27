@@ -1,25 +1,36 @@
 #include "utils.h"
 #include <stdio.h>
-#include <sys/time.h>
 #include <wchar.h>
 #include <locale.h>
+
+#ifdef _WIN32
+#include <conio.h>
+#include <windows.h>
+#else
 #include <termios.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/time.h>
+#endif
 
 char u_obuf[U_OBUF_SIZE];
+#ifndef _WIN32
 char u_ibuf = 0;
+#endif
 
 const char *u_style_map[8] = {
     "", "1;", "3;", "1;3;", "4;", "1;4;", "3;4;", "1;3;4;",
 };
 
+#ifndef _WIN32
 struct termios u_orig_termios, u_raw_termios;
+#endif
 
 trie u_ch2keymap;
 bool u_ch2keymap_inited = false;
 
 void u_init_term() {
+#ifndef _WIN32
     tcgetattr(STDIN_FILENO, &u_orig_termios);
 
     u_raw_termios = u_orig_termios;
@@ -30,10 +41,13 @@ void u_init_term() {
     u_raw_termios.c_cc[VMIN] = 1;
     u_raw_termios.c_cc[VTIME] = 1;
     tcsetattr(STDIN_FILENO, TCSADRAIN, &u_raw_termios);
+#endif
 }
 
 void u_fina_term() {
+#ifndef _WIN32
     tcsetattr(STDIN_FILENO, TCSADRAIN, &u_orig_termios);
+#endif
 }
 
 void u_init() {
@@ -43,12 +57,14 @@ void u_init() {
     u_init_log();
 #endif
 
-    // setvbuf(stdout, u_obuf, _IOFBF, U_OBUF_SIZE);
-    // flush();
+    setvbuf(stdout, u_obuf, _IOFBF, U_OBUF_SIZE);
+    flush();
 
     u_init_ch2keymap();
 
     setlocale(LC_ALL, "");
+
+    mbsinit(&u_mbstate);
 }
 
 void u_fina() {
@@ -103,7 +119,11 @@ void cotext_print(colortext c) {
     printf("%s", u_style_map[c.style]);
     printf("38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm", c.fg[0], c.fg[1], c.fg[2],
            c.bg[0], c.bg[1], c.bg[2]);
+#ifndef _WIN32
     printf("%lc", c.ch);
+#else
+    wprintf(L"%lc", c.ch);
+#endif
 }
 
 void u_init_ch2keymap() {
@@ -113,8 +133,11 @@ void u_init_ch2keymap() {
     A("\x1d", K_C_RSQBR);
     A("\x1c", K_C_BACKSLASH);
     A("\x1f", K_C_SLASH);
-    A("\x7f", K_BS);
     A("\r", K_CR);
+    A("\n", K_CR);
+    A("\x08", K_BS);
+#ifndef _WIN32
+    A("\x7f", K_BS);
     A("\x1b\t", K_M_TAB);
     A("\x1b\n", K_M_CR);
     A("\x1b ", K_M_SPACE);
@@ -193,25 +216,102 @@ void u_init_ch2keymap() {
     A("\x1b[21;3~", K_M_F10);
     A("\x1b[23;3~", K_M_F11);
     A("\x1b[24;3~", K_M_F12);
+#else
+    A("\xe0H", K_UP);
+    A("\xe0P", K_DOWN);
+    A("\xe0K", K_LEFT);
+    A("\xe0M", K_RIGHT);
+    A("\xe0G", K_HOME);
+    A("\xe0O", K_END);
+    A("\xe0R", K_INS);
+    A("\xe0S", K_DEL);
+    A("\xe0I", K_PAGEUP);
+    A("\xe0Q", K_PAGEDOWN);
+    A("\xe0\x8d", K_C_UP);
+    A("\xe0\x91", K_C_DOWN);
+    A("\xe0\x73", K_C_LEFT);
+    A("\xe0\x74", K_C_RIGHT);
+    A("\xe0\x77", K_C_HOME);
+    A("\xe0\x75", K_C_END);
+    A("\xe0\x92", K_C_INS);
+    A("\xe0\x93", K_C_DEL);
+    A("\xe0\x86", K_C_PAGEUP);
+    A("\xe0\x76", K_C_PAGEDOWN);
+    A("\xe0\x98", K_M_UP);
+    A("\xe0\xa0", K_M_DOWN);
+    A("\xe0\x9b", K_M_LEFT);
+    A("\xe0\x9d", K_M_RIGHT);
+    A("\xe0\x97", K_M_HOME);
+    A("\xe0\x9f", K_M_END);
+    A("\xe0\xa2", K_M_INS);
+    A("\xe0\xa3", K_M_DEL);
+    A("\xe0\x99", K_M_PAGEUP);
+    A("\xe0\xa1", K_M_PAGEDOWN);
+    A("\xe0\x3b", K_F1);
+    A("\xe0\x3c", K_F2);
+    A("\xe0\x3d", K_F3);
+    A("\xe0\x3e", K_F4);
+    A("\xe0\x3f", K_F5);
+    A("\xe0\x40", K_F6);
+    A("\xe0\x41", K_F7);
+    A("\xe0\x42", K_F8);
+    A("\xe0\x43", K_F9);
+    A("\xe0\x44", K_F10);
+    A("\xe0\x85", K_F11);
+    A("\xe0\x86", K_F12);
+    A("\xe0\x5e", K_C_F1);
+    A("\xe0\x5f", K_C_F2);
+    A("\xe0\x60", K_C_F3);
+    A("\xe0\x61", K_C_F4);
+    A("\xe0\x62", K_C_F5);
+    A("\xe0\x63", K_C_F6);
+    A("\xe0\x64", K_C_F7);
+    A("\xe0\x65", K_C_F8);
+    A("\xe0\x66", K_C_F9);
+    A("\xe0\x67", K_C_F10);
+    A("\xe0\x89", K_C_F11);
+    A("\xe0\x8a", K_C_F12);
+    A("\xe0\x68", K_M_F1);
+    A("\xe0\x69", K_M_F2);
+    A("\xe0\x6a", K_M_F3);
+    A("\xe0\x6b", K_M_F4);
+    A("\xe0\x6c", K_M_F5);
+    A("\xe0\x6d", K_M_F6);
+    A("\xe0\x6e", K_M_F7);
+    A("\xe0\x6f", K_M_F8);
+    A("\xe0\x70", K_M_F9);
+    A("\xe0\x71", K_M_F10);
+    A("\xe0\x8b", K_M_F11);
+    A("\xe0\x8c", K_M_F12);
+#endif
 #undef A
 }
 
+#ifndef _WIN32
 long long get_usec() {
     struct timeval t = {0};
     gettimeofday(&t, NULL);
     return t.tv_sec * 1000 * 1000 + t.tv_usec;
 }
+#endif
 
-unsigned char u_basic_getch() {
+mbstate_t u_mbstate;
+
+char_t u_basic_getch() {
+#ifndef _WIN32
     unsigned char res = u_ibuf;
     if (res)
         u_ibuf = 0;
     else
         read(STDIN_FILENO, &res, 1);
     return res;
+#else
+    return _getch();
+#endif
 }
 
 bool u_kbhit() {
+#ifndef _WIN32
     if (u_ibuf)
         return true;
     u_raw_termios.c_cc[VMIN] = 0;
@@ -221,27 +321,37 @@ bool u_kbhit() {
     u_raw_termios.c_cc[VMIN] = 1;
     tcsetattr(STDIN_FILENO, TCSADRAIN, &u_raw_termios);
     return u_ibuf;
+#else
+    return _kbhit();
+#endif
 }
 
 unsigned char u_inputs[10];
 
-byte u_getch() {
+char_t u_getch() {
     char i = 0;
-    unsigned char ch = u_basic_getch();
+    char_t ch = u_basic_getch();
     if (u_ch2keymap.child[ch] && u_ch2keymap.child[ch]->is_leaf) {
-        return convert(byte, u_ch2keymap.child[ch]->data);
+        return convert(char_t, u_ch2keymap.child[ch]->data);
     } else if (isprintable(ch)) {
         return ch;
     } else if (1 <= ch && ch <= 26) {
         return ch;
+#ifndef _WIN32
     } else if (ch == 27) {
         if (!u_kbhit()) {
             return K_ESC;
         }
+#else
+    } else if (ch == 27) {
+        return K_ESC;
+    } else if (ch == 224 || ch == 0) {
+        ch = 224;
+#endif
+        trie *t = u_ch2keymap.child[ch];
         ch = u_basic_getch();
-        trie *t = u_ch2keymap.child['\x1b'];
         if (t->child[ch] && t->child[ch]->is_leaf) {
-            return convert(byte, t->child[ch]->data);
+            return convert(char_t, t->child[ch]->data);
         } else if (0 <= ch && ch <= 26) {
             return K_M_CTRL(ch + 'a');
         } else if (!t->child[ch]) {
@@ -254,20 +364,17 @@ byte u_getch() {
             if (!t)
                 break;
             else if (t->is_leaf)
-                return convert(byte, t->data);
+                return convert(char_t, t->data);
         }
         return K_UNKNOWN;
-    } else {
-        char nxt = utf8_next(ch);
-        if (nxt == -1)
-            return K_UNKNOWN;
-        u_inputs[i++] = ch;
-        for (; i < nxt; i++)
-            u_inputs[i] = u_basic_getch();
-        byte res;
-        utf8_cvt(u_inputs, &res);
+    } else if (mbrlen((char *)&ch, 1, &u_mbstate) == (size_t)-2) {
+        wchar_t res = K_UNKNOWN;
+        ch = u_basic_getch();
+        while (mbrtowc(&res, (char *)&ch, 1, &u_mbstate) == (size_t)-2)
+            ch = u_basic_getch();
         return res;
     }
+    return K_UNKNOWN;
 }
 
 char utf8_next(unsigned char ch) {
@@ -282,7 +389,7 @@ char utf8_next(unsigned char ch) {
     return -1;
 }
 
-char utf8_cvt(const unsigned char *code, byte *output) {
+char utf8_cvt(const unsigned char *code, char_t *output) {
     char nbytes;
     wchar_t res = *code;
     if (res < 0x80)

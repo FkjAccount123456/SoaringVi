@@ -58,9 +58,9 @@ void text_add_history(textmgr *mgr, edit_history op, bool pass_ownership) {
         }
     }
     if (!pass_ownership) {
-        byte *src = op.v.v;
-        op.v.v = malloc(op.v.max * sizeof(byte));
-        memcpy(op.v.v, src, op.v.len * sizeof(byte));
+        char_t *src = op.v.v;
+        op.v.v = malloc(op.v.max * sizeof(char_t));
+        memcpy(op.v.v, src, op.v.len * sizeof(char_t));
     }
     seq_expand(mgr->undo_cur->next, 1);
     mgr->undo_cur->next.len++;
@@ -165,13 +165,13 @@ coord text_delete(textmgr *mgr, coord l, coord r) {
             text_add_history(mgr, history_new(OPERT_DELETE, l, r, tmp), false);
         }
         memmove(&text_at(l.y, l.x), &text_at(l.y, r.x),
-                (text_line(l.y).len - r.x) * sizeof(byte));
+                (text_line(l.y).len - r.x) * sizeof(char_t));
         text_line(l.y).len -= r.x - l.x;
         return l;
     }
     seq_expand_to(text_line(l.y), l.x + text_line(r.y).len - r.x);
     memcpy(&text_at(l.y, l.x), &text_at(r.y, r.x),
-           (text_line(r.y).len - r.x) * sizeof(byte));
+           (text_line(r.y).len - r.x) * sizeof(char_t));
     text_line(l.y).len = l.x + text_line(r.y).len - r.x;
     for (size_t i = l.y + 1; i <= r.y; i++)
         free(text_line(i).v);

@@ -1,11 +1,18 @@
 /*
 实在等不了了，赶紧先写一个最小版本
 */
+#ifdef _WIN32
+#define NOMINMAX
+#define NOINTERFACE
+#include <windows.h>
+#else
+#include <unistd.h>
+#include <sys/ioctl.h>
+#endif
+
 #include "drawer.h"
 #include "wcwidth/wcwidth.h"
 #include <assert.h>
-#include <sys/ioctl.h>
-#include <unistd.h>
 #include <wchar.h>
 
 #define colortext_statusline(x) (colortext){.fg = {0, 0, 0}, .bg = {192, 192, 192}, .style = 0, .ch = x}
@@ -14,9 +21,16 @@ int main(int argc, char *argv[]) {
     u_init();
 
     size_t term_h, term_w;
+#ifdef _WIN32
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
+    term_h = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+    term_w = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+#else
     struct winsize w;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
     term_h = w.ws_row, term_w = w.ws_col;
+#endif
 
     textmgr mgr;
     text_init(&mgr);
@@ -35,7 +49,7 @@ int main(int argc, char *argv[]) {
         fp = fopen(file, "r");
         if (fp) {
             rawstr text = seq_init(rawstr);
-            byte ch;
+            char_t ch;
             while ((ch = fgetwc(fp)) != EOF) {
                 if (ch != '\r')
                     seq_append(text, ch);
@@ -46,8 +60,8 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    byte insertion[1];
-    rawstr insertion_str = {insertion, 1, 2, sizeof(byte)};
+    char_t insertion[1];
+    rawstr insertion_str = {insertion, 1, 2, sizeof(char_t)};
 
     bool running = true;
     size_t y = 0, x = 0, ideal_x = 0;
@@ -65,7 +79,7 @@ int main(int argc, char *argv[]) {
         screen_flush(&scr);
         gotoxy(cursor.y, cursor.x);
         flush();
-        byte ch = u_getch();
+        char_t ch = u_getch();
         if (ch == K_ESC) {
             running = false;
         } else if (ch == K_BS) {
