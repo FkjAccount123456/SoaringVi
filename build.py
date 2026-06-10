@@ -2,7 +2,7 @@ import os
 import sys
 
 # 有其他办法最好
-if sys.platform == 'win32':
+if sys.platform == "win32":
     with open("wcwidth/wcwidth.h", "w") as f:
         f.write("""#ifndef WCWIDTH_H_INCLUDED
 #define WCWIDTH_H_INCLUDED
@@ -15,13 +15,19 @@ int wcwidth(wchar_t ucs);
 """)
 
 all_src = ["wcwidth/wcwidth.c"]
-for i in os.listdir('.'):
-    if i.endswith('.c') and i != 'main.c':
+for i in os.listdir("."):
+    if i.endswith(".c") and i != "smallest.c":
         all_src.append(i)
 
-os.system('gcc ' + ' '.join(all_src) + ' -o smallest')
+opts = []
+if "--debug" in sys.argv:
+    opts.append("-O0 -g")
+else:
+    opts.append("-O3")
 
-if sys.platform == 'win32':
+os.system("gcc " + " ".join(opts) + " " + " ".join(all_src) + " -o srvi")
+
+if sys.platform == "win32":
     with open("wcwidth/wcwidth.h", "w") as f:
         f.write("""#ifndef WCWIDTH_H_INCLUDED
 #define WCWIDTH_H_INCLUDED

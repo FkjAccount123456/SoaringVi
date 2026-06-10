@@ -3,19 +3,22 @@
 
 void drawer_init(drawer *dr, screen *scr, textmgr *mgr, size_t y, size_t x,
                  size_t h, size_t w, bool mode) {
+    memset(dr, 0, sizeof(drawer));
     dr->scr = scr;
     dr->mgr = mgr;
     dr->y = y, dr->x = x;
     dr->h = h, dr->full_w = w;
     dr->cfg.mode = mode;
-    dr->vscroll = coord_new(0, 0);
-    dr->hscroll = 0;
 }
 
 void drawer_setcfg(drawer *dr, drawer_config cfg) {
     if (cfg.mode != dr->cfg.mode)
         dr->vscroll.x = 0;
     dr->cfg = cfg;
+}
+
+void drawer_move(drawer *dr, size_t t, size_t l) {
+    dr->y = t, dr->x = l;
 }
 
 void drawer_resize(drawer *dr, size_t h, size_t w) {
@@ -31,7 +34,7 @@ char _get_num_vw(size_t num) {
 }
 
 coord drawer_setcursor(drawer *dr, size_t y, size_t x) {
-    if (dr->cfg.linum) {
+    if (dr->cfg.linum && dr->full_w > 5) {
         dr->linum_w = _get_num_vw(dr->mgr->text.len);
         if (dr->linum_w < 2)
             dr->linum_w = 2;
@@ -42,7 +45,15 @@ coord drawer_setcursor(drawer *dr, size_t y, size_t x) {
         dr->w = dr->full_w;
     }
 
+    size_t tmp = dr->cfg.vscroff;
+    if (dr->h < dr->cfg.vscroff * 2 + 1)
+        dr->cfg.vscroff = 0;
+
     if (dr->cfg.mode == DRAWER_MODE_HSCROLL) {
+        size_t htmp = dr->cfg.hscroff;
+        if (dr->w < dr->cfg.hscroff * 2 + 1)
+            dr->cfg.hscroff = 0;
+
         if (y < dr->vscroll.y + dr->cfg.vscroff) {
             if (y > dr->cfg.vscroff)
                 dr->vscroll.y = y - dr->cfg.vscroff;
@@ -69,21 +80,20 @@ coord drawer_setcursor(drawer *dr, size_t y, size_t x) {
         if (w + dr->cfg.hscroff > dr->hscroll + dr->w &&
             w + dr->cfg.hscroff >= dr->w)
             dr->hscroll = w + dr->cfg.hscroff - dr->w;
-        return coord_new(y - dr->vscroll.y, res_x + dr->linum_w - dr->hscroll);
+        dr->cfg.vscroff = tmp, dr->cfg.hscroff = htmp;
+        return coord_new(y + dr->y - dr->vscroll.y,
+                         res_x + dr->x + dr->linum_w - dr->hscroll);
     }
 
     coord cxy_vp = drawer_calcvhw(dr, y, x);
     coord crs_vp = coord_new(y, cxy_vp.y - 1);
     coord ubound = drawer_scrollup(dr, crs_vp, dr->cfg.vscroff);
     coord dbound = drawer_scrollup(dr, crs_vp, dr->h - dr->cfg.vscroff - 1);
-    log("crs_vp: %zu %zu, scroll: %zu, %zu\n", crs_vp.y, crs_vp.x,
-        dr->cfg.vscroff, dr->h - dr->cfg.vscroff - 1);
-    log("ubound: %zu %zu\n", ubound.y, ubound.x);
-    log("dbound: %zu %zu\n", dbound.y, dbound.x);
     if (coord_cmp(ubound, dr->vscroll) < 0)
         dr->vscroll = ubound;
     if (coord_cmp(dbound, dr->vscroll) > 0)
         dr->vscroll = dbound;
+    dr->cfg.vscroff = tmp;
 
     if (y == dr->vscroll.y)
         return coord_new(cxy_vp.y + dr->y - dr->vscroll.x - 1,
@@ -229,6 +239,8 @@ void drawer_draw(drawer *dr) {
     // 2026-1-23
     // 貌似写完了，竟然就这么几行吗
     // 看来再也没有什么能阻挡我了（
+    // 2026-6-9
+    // 、、、
 }
 
 // 2026-1-25

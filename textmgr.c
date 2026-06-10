@@ -22,7 +22,6 @@ void text_free(textmgr *mgr) {
 }
 
 void text_add_history(textmgr *mgr, edit_history op, bool pass_ownership) {
-    log("text_add_history pass_ownership: %d\n", pass_ownership);
     time_t t;
     time(&t);
     if (mgr->undo_cur->next.len == 0 && t - mgr->undo_cur->time <= 1) {
@@ -145,9 +144,10 @@ coord text_insert_processed(textmgr *mgr, coord pos, str_list data) {
                text_line(pos.y).len - pos.x);
     text_line(pos.y).len = pos.x;
     seq_extend(text_line(pos.y), data.v[0].v, data.v[0].len);
+    size_t resx = seq_end(data).len;
     free(data.v[0].v);
     free(data.v);
-    return coord_new(pos.y + data.len - 1, seq_end(data).len);
+    return coord_new(pos.y + data.len - 1, resx);
 }
 
 // 2026-1-16

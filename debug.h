@@ -8,10 +8,9 @@
 
 #ifdef DEBUG_MODE
 
-
+#include <memory.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <memory.h>
 
 extern FILE *u_log;
 
@@ -19,6 +18,13 @@ void u_init_log();
 void u_fina_log();
 
 #define log(...) fprintf(u_log, ##__VA_ARGS__)
+
+#define debug_log_any(data, size)                                              \
+    do {                                                                       \
+        for (size_t i = 0; i < size; i += 8)                                   \
+            log("%zd ", ((long long *)data)[i / 8]);                           \
+        log("\n");                                                             \
+    } while (0)
 
 #ifndef DEBUG_NOMEMLOG
 
@@ -60,7 +66,7 @@ void u_fina_log();
 
 #endif // DEBUG_NOMEMLOG
 
-#else  // DEBUG_MODE
+#else // DEBUG_MODE
 
 #define log(...)
 

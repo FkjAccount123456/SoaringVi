@@ -3,11 +3,11 @@
 
 #include "debug.h"
 #include "hashmap.h"
-#include <string.h>
+#include <ctype.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include <ctype.h>
 #include <stdlib.h>
+#include <string.h>
 #include <wchar.h>
 
 #define error(...)                                                             \
@@ -49,9 +49,9 @@
 
 #define seq_expand_to(name, _n)                                                \
     do {                                                                       \
-        typeof(_n) n = _n;                                                     \
-        if (name.max < n) {                                                    \
-            while (name.max < n)                                               \
+        typeof(_n) _S_n = _n;                                                  \
+        if (name.max < _S_n) {                                                 \
+            while (name.max < _S_n)                                            \
                 name.max <<= 1;                                                \
             name.v = realloc(name.v, name.Tsize * name.max);                   \
         }                                                                      \
@@ -59,39 +59,42 @@
 
 #define seq_expand(name, _n)                                                   \
     do {                                                                       \
-        typeof(_n) n = _n;                                                     \
-        if (name.len + n > name.max) {                                         \
-            while (name.len + n > name.max)                                    \
+        typeof(_n) _S_n = _n;                                                  \
+        if (name.len + _S_n > name.max) {                                      \
+            while (name.len + _S_n > name.max)                                 \
                 name.max <<= 1;                                                \
             name.v = realloc(name.v, name.Tsize * name.max);                   \
         }                                                                      \
     } while (0)
 
+// 2026-6-7
+// 竟然又有问题出在这个宏上了
+// 只是idx和外部变量重名了而已
 #define seq_insert(name, _idx, src, _n)                                        \
     do {                                                                       \
-        typeof(_idx) idx = _idx;                                               \
-        typeof(_n) n = _n;                                                     \
-        if (name.len + n > name.max) {                                         \
-            while (name.len + n > name.max)                                    \
+        typeof(_idx) _S_idx = _idx;                                            \
+        typeof(_n) _S_n = _n;                                                  \
+        if (name.len + _S_n > name.max) {                                      \
+            while (name.len + _S_n > name.max)                                 \
                 name.max <<= 1;                                                \
             name.v = realloc(name.v, name.Tsize * name.max);                   \
         }                                                                      \
-        memmove(name.v + idx + n, name.v + idx,                                \
-                (name.len - idx) * name.Tsize);                                \
-        memcpy(name.v + idx, src, n * name.Tsize);                             \
-        name.len += n;                                                         \
+        memmove(name.v + _S_idx + _S_n, name.v + _S_idx,                       \
+                (name.len - _S_idx) * name.Tsize);                             \
+        memcpy(name.v + _S_idx, src, _S_n * name.Tsize);                       \
+        name.len += _S_n;                                                      \
     } while (0)
 
 #define seq_extend(name, src, _n)                                              \
     do {                                                                       \
-        typeof(_n) n = _n;                                                     \
-        if (name.len + n > name.max) {                                         \
-            while (name.len + n > name.max)                                    \
+        typeof(_n) _S_n = _n;                                                  \
+        if (name.len + _S_n > name.max) {                                      \
+            while (name.len + _S_n > name.max)                                 \
                 name.max <<= 1;                                                \
             name.v = realloc(name.v, name.Tsize * name.max);                   \
         }                                                                      \
-        memcpy(name.v + name.len, src, n * name.Tsize);                        \
-        name.len += n;                                                         \
+        memcpy(name.v + name.len, src, _S_n * name.Tsize);                     \
+        name.len += _S_n;                                                      \
     } while (0)
 
 #define seq_pop(name) (name.v[--name.len])
@@ -100,7 +103,7 @@
 
 #define seq_end(name) (name.v[name.len - 1])
 
-#define seq_back(name, n) (name.v[name.len - n])
+#define seq_back(name, n) (name.v[name.len - (n)])
 
 #define swap(a, b)                                                             \
     do {                                                                       \
@@ -148,11 +151,30 @@ typedef struct coord {
 
 #define coord_new(y, x) ((coord){y, x})
 
+#define min(a, b)                                                              \
+    ({                                                                         \
+        typeof(a) _a = a;                                                      \
+        typeof(b) _b = b;                                                      \
+        _a > _b ? _b : _a;                                                     \
+    })
+
+#define max(a, b)                                                              \
+    ({                                                                         \
+        typeof(a) _a = a;                                                      \
+        typeof(b) _b = b;                                                      \
+        _a < _b ? _b : _a;                                                     \
+    })
+
 extern mbstate_t u_mbstate;
 
 void wstrcpy(char_t *dst, char_t *src);
 
 void u_init_ch2keymap();
+
+extern char_t u_cur_keyenum;
+
+// 我显然没有统计全所有的键码
+char_t u_add_keyread(unsigned char *keycode);
 
 char_t u_basic_getch();
 
@@ -278,12 +300,12 @@ enum {
     K_M_C_SLASH = -79,
     K_M_ESC = -80,
 
-    K_UNKNOWN = -81,
-
     K_M_C_A = -200,
+
+    K_UNKNOWN = -201,
 };
 
-#define K_CTRL(ch) (ch - 'a')
+#define K_CTRL(ch) (ch - 'a' + 1)
 #define K_M_CTRL(ch) (ch - 'a' + K_M_C_A)
 
 #define convert(T, V)                                                          \
@@ -294,5 +316,29 @@ enum {
          .t)
 
 #define isprintable(ch) (isprint(ch) || ch == '\t' || ch == '\n' || ch == ' ')
+
+coord get_term_size();
+
+// 搞一些好用的宏吧
+
+#define accumulate(restp, tp, i, start, end, val)                              \
+    ({                                                                         \
+        restp _U_res = 0;                                                      \
+        tp _U_start = start, _U_end = end;                                     \
+        for (tp i = _U_start; i < _U_end; i++)                                 \
+            _U_res += val;                                                     \
+        _U_res;                                                                \
+    })
+
+#define e_sizesum(start, end, list) accumulate(int, int, i, start, end, list)
+
+#define foreach(seq) for (size_t i = 0; i < seq.len; i++)
+
+#define map_res(dest, expr, end)                                               \
+    do {                                                                       \
+        size_t _U_end = end;                                                   \
+        for (size_t i = 0; i < _U_end; i++)                                    \
+            dest[i] = expr;                                                    \
+    } while (0)
 
 #endif // UTILS_H

@@ -45,6 +45,7 @@ void drawer_init(drawer *dr, screen *scr, textmgr *mgr, size_t y, size_t x,
                  size_t h, size_t w, bool mode);
 
 void drawer_setcfg(drawer *dr, drawer_config cfg);
+void drawer_move(drawer *dr, size_t t, size_t l);
 void drawer_resize(drawer *dr, size_t h, size_t w);
 // 根据光标位置调整滚动，并返回光标位置所在的视觉行
 coord drawer_setcursor(drawer *dr, size_t y, size_t x);

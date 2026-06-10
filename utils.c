@@ -1,16 +1,18 @@
 #include "utils.h"
+#include <locale.h>
 #include <stdio.h>
 #include <wchar.h>
-#include <locale.h>
 
 #ifdef _WIN32
 #include <conio.h>
 #include <windows.h>
 #else
-#include <termios.h>
 #include <fcntl.h>
-#include <unistd.h>
+#include <sys/ioctl.h>
 #include <sys/time.h>
+#include <termios.h>
+#include <unistd.h>
+
 #endif
 
 char u_obuf[U_OBUF_SIZE];
@@ -29,6 +31,8 @@ struct termios u_orig_termios, u_raw_termios;
 trie u_ch2keymap;
 bool u_ch2keymap_inited = false;
 
+char_t u_cur_keyenum = K_UNKNOWN;
+
 void u_init_term() {
 #ifndef _WIN32
     tcgetattr(STDIN_FILENO, &u_orig_termios);
@@ -41,6 +45,12 @@ void u_init_term() {
     u_raw_termios.c_cc[VMIN] = 1;
     u_raw_termios.c_cc[VTIME] = 1;
     tcsetattr(STDIN_FILENO, TCSADRAIN, &u_raw_termios);
+#else
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD dwMode = 0;
+    GetConsoleMode(hOut, &dwMode);
+    dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    SetConsoleMode(hOut, dwMode);
 #endif
 }
 
@@ -127,9 +137,12 @@ void cotext_print(colortext c) {
 }
 
 void u_init_ch2keymap() {
-    trie_init(&u_ch2keymap);
-    u_ch2keymap_inited = true;
-#define A(K, V) trie_insert(&u_ch2keymap, (unsigned char *)K, convert(void *, V))
+    if (!u_ch2keymap_inited) {
+        trie_init(&u_ch2keymap);
+        u_ch2keymap_inited = true;
+    }
+#define A(K, V)                                                                \
+    trie_insert(&u_ch2keymap, (unsigned char *)K, convert(void *, V))
     A("\x1d", K_C_RSQBR);
     A("\x1c", K_C_BACKSLASH);
     A("\x1f", K_C_SLASH);
@@ -285,6 +298,15 @@ void u_init_ch2keymap() {
     A("\xe0\x8c", K_M_F12);
 #endif
 #undef A
+}
+
+char_t u_add_keyread(unsigned char *keycode) {
+    if (!u_ch2keymap_inited) {
+        trie_init(&u_ch2keymap);
+        u_ch2keymap_inited = true;
+    }
+    trie_insert(&u_ch2keymap, keycode, convert(void *, --u_cur_keyenum));
+    return u_cur_keyenum;
 }
 
 #ifndef _WIN32
@@ -450,4 +472,19 @@ void trie_free(trie *t) {
             free(t->child[i]);
         }
     }
+}
+
+coord get_term_size() {
+    size_t term_h, term_w;
+#ifdef _WIN32
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
+    term_h = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+    term_w = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+#else
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+    term_h = w.ws_row, term_w = w.ws_col;
+#endif
+    return coord_new(term_h, term_w);
 }

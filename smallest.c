@@ -20,7 +20,7 @@
 int main(int argc, char *argv[]) {
     u_init();
 
-    size_t term_h, term_w;
+    int term_h, term_w;
 #ifdef _WIN32
     CONSOLE_SCREEN_BUFFER_INFO csbi;
     GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
@@ -64,13 +64,13 @@ int main(int argc, char *argv[]) {
     rawstr insertion_str = {insertion, 1, 2, sizeof(char_t)};
 
     bool running = true;
-    size_t y = 0, x = 0, ideal_x = 0;
+    int y = 0, x = 0, ideal_x = 0;
     while (running) {
         coord cursor = drawer_setcursor(&dr, y, x);
         drawer_draw(&dr);
 
         screen_change(&scr, term_h - 1, 0, colortext_statusline(' '));
-        size_t i;
+        int i;
         for (i = 1; file[i - 1]; i++)
             screen_change(&scr, term_h - 1, i, colortext_statusline(file[i - 1]));
         for (i++; i < term_w; i++)
