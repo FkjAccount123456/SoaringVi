@@ -64,6 +64,8 @@ void _buffer_draw_modeline(buffer *buf) {
     }
 
 void buffer_draw(buffer *buf) {
+    if (buf->h <= 0 || buf->w <= 0)
+        return;
     coord cursor = drawer_setcursor(&buf->dr, buf->y, buf->x);
     drawer_draw(&buf->dr);
     if (buf->e->cur == buf)
@@ -345,6 +347,7 @@ void _split_relay(split *sp) {
             window *ch = sp->chs.v[i].win;
             int min_size = window_calc_minsize(ch).y;
             int max_size = sum_size - postsum[i + 1];
+            max_size = max(0, max_size);
             int new_size =
                 min(max_size, max(min_size, (int)(sp->h * sp->chs.v[i].ratio)));
             sum_size -= new_size;
@@ -363,6 +366,7 @@ void _split_relay(split *sp) {
             window *ch = sp->chs.v[i].win;
             int min_size = window_calc_minsize(ch).x;
             int max_size = sum_size - postsum[i + 1] - 1;
+            max_size = max(0, max_size);
             int new_size =
                 min(max_size, max(min_size, (int)(sp->w * sp->chs.v[i].ratio)));
             sum_size -= new_size + 1;
