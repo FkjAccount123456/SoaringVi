@@ -3,10 +3,6 @@
 #include <stdlib.h>
 #include <time.h>
 
-int coord_cmp(coord a, coord b) {
-    return a.y < b.y ? -1 : a.y > b.y ? 1 : a.x < b.x ? -1 : a.x > b.x ? 1 : 0;
-}
-
 void text_init(textmgr *mgr) {
     mgr->text = seq_init(str_list);
     seq_append(mgr->text, seq_init(rawstr));
@@ -24,10 +20,10 @@ void text_free(textmgr *mgr) {
 void text_add_history(textmgr *mgr, edit_history op, bool pass_ownership) {
     time_t t;
     time(&t);
-    if (mgr->undo_cur->next.len == 0 && t - mgr->undo_cur->time <= 1) {
+    if (mgr->undo_cur->next.len == 0 && t - mgr->undo_cur->time <= 1 &&
+        op.v.len == 1) {
         if (mgr->undo_cur->op.tp == OPERT_INSERT && op.tp == OPERT_INSERT &&
-            op.v.len == 1 && !coord_cmp(op.l, mgr->undo_cur->op.r) &&
-            op.v.v[0] != '\n') {
+            !coord_cmp(op.l, mgr->undo_cur->op.r) && op.v.v[0] != '\n') {
             seq_append(mgr->undo_cur->op.v, op.v.v[0]);
             mgr->undo_cur->op.r.x += 1;
             mgr->undo_cur->time = t;
@@ -36,8 +32,7 @@ void text_add_history(textmgr *mgr, edit_history op, bool pass_ownership) {
             return;
         }
         if (mgr->undo_cur->op.tp == OPERT_INSERT && op.tp == OPERT_DELETE &&
-            op.v.len == 1 && !coord_cmp(op.r, mgr->undo_cur->op.r) &&
-            op.v.v[0] != '\n') {
+            !coord_cmp(op.r, mgr->undo_cur->op.r) && op.v.v[0] != '\n') {
             mgr->undo_cur->op.r.x -= 1;
             mgr->undo_cur->op.v.len--;
             mgr->undo_cur->time = t;
@@ -46,8 +41,7 @@ void text_add_history(textmgr *mgr, edit_history op, bool pass_ownership) {
             return;
         }
         if (mgr->undo_cur->op.tp == OPERT_DELETE && op.tp == OPERT_DELETE &&
-            op.v.len == 1 && !coord_cmp(op.r, mgr->undo_cur->op.l) &&
-            op.v.v[0] != '\n') {
+            !coord_cmp(op.r, mgr->undo_cur->op.l) && op.v.v[0] != '\n') {
             mgr->undo_cur->op.l.x -= 1;
             seq_insert(mgr->undo_cur->op.v, 0, op.v.v, 1);
             mgr->undo_cur->time = t;
@@ -139,8 +133,10 @@ coord text_insert_processed(textmgr *mgr, coord pos, str_list data) {
         free(data.v);
         return coord_new(pos.y, pos.x + len);
     }
+    // 2026-6-13
+    // 经典基础设施出错
     seq_insert(mgr->text, pos.y + 1, data.v + 1, data.len - 1);
-    seq_insert(text_line(pos.y + data.len - 1), 0, &text_at(pos.y, pos.x),
+    seq_extend(text_line(pos.y + data.len - 1), &text_at(pos.y, pos.x),
                text_line(pos.y).len - pos.x);
     text_line(pos.y).len = pos.x;
     seq_extend(text_line(pos.y), data.v[0].v, data.v[0].len);
@@ -159,11 +155,9 @@ coord text_delete(textmgr *mgr, coord l, coord r) {
     if (coord_cmp(l, r) > 0)
         swap(l, r);
     rawstr str = text_get(mgr, l, r);
+    if (!mgr->is_doing)
+        text_add_history(mgr, history_new(OPERT_DELETE, l, r, str), true);
     if (l.y == r.y) {
-        if (!mgr->is_doing) {
-            rawstr tmp = {.len = r.x - l.x, .v = &text_at(l.y, l.x)};
-            text_add_history(mgr, history_new(OPERT_DELETE, l, r, tmp), false);
-        }
         memmove(&text_at(l.y, l.x), &text_at(l.y, r.x),
                 (text_line(l.y).len - r.x) * sizeof(char_t));
         text_line(l.y).len -= r.x - l.x;
@@ -178,8 +172,6 @@ coord text_delete(textmgr *mgr, coord l, coord r) {
     memmove(&text_line(l.y + 1), &text_line(r.y + 1),
             sizeof(rawstr) * (mgr->text.len - r.y - 1));
     mgr->text.len -= r.y - l.y;
-    if (!mgr->is_doing)
-        text_add_history(mgr, history_new(OPERT_DELETE, l, r, str), true);
     return l;
 }
 

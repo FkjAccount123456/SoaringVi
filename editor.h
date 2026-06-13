@@ -3,6 +3,7 @@
 
 #include "drawer.h"
 #include <stddef.h>
+#include <time.h>
 
 #define BUFFER_MIN_H 2
 #define BUFFER_MIN_W 5
@@ -15,13 +16,20 @@ enum {
     M_NORMAL,
     M_INSERT,
     M_VISUAL,
+    M_COMMAND,
 
     M_USRADD,
 };
 
+typedef struct seq(char *) charp_list;
+
+extern charp_list e_mode_str;
+
 extern size_t e_mode_useradd_cur;
 
-size_t e_mode_add();
+void e_mode_init();
+
+size_t e_mode_add(char *name);
 
 typedef struct editor editor;
 typedef struct split split;
@@ -148,6 +156,10 @@ typedef struct editor {
     buffers bufs;
     coord cursor;
 
+    rawstr msg;
+    int msg_x, msg_start;
+    time_t msg_updtime;
+
     intlist _split_sizes;
 } editor;
 
@@ -157,6 +169,11 @@ void editor_free(editor *e);
 void editor_quit(editor *e);
 void editor_draw(editor *e);
 bool editor_prockey(editor *e, char_t key);
+void editor_proccmd(editor *e);
+
+void editor_sendmsg(editor *e, rawstr msg);
+
+void editor_chmod_command(editor *e);
 
 void editor_mainloop(editor *e);
 

@@ -136,6 +136,10 @@ void cotext_print(colortext c) {
 #endif
 }
 
+int coord_cmp(coord a, coord b) {
+    return a.y < b.y ? -1 : a.y > b.y ? 1 : a.x < b.x ? -1 : a.x > b.x ? 1 : 0;
+}
+
 void u_init_ch2keymap() {
     if (!u_ch2keymap_inited) {
         trie_init(&u_ch2keymap);

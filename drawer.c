@@ -33,7 +33,11 @@ char _get_num_vw(size_t num) {
     return res;
 }
 
+// 2026-6-12
+// setcursor一定要set cursor
 coord drawer_setcursor(drawer *dr, size_t y, size_t x) {
+    dr->cursor = coord_new(y, x);
+
     if (dr->cfg.linum && dr->full_w > 5) {
         dr->linum_w = _get_num_vw(dr->mgr->text.len);
         if (dr->linum_w < 2)
@@ -128,6 +132,10 @@ void _d_fill_lntext(char *t, size_t w, size_t num) {
 #define colortext_normal(c)                                                    \
     (colortext){.ch = c, .bg = {0, 0, 0}, .fg = {192, 192, 192}, .style = 0}
 
+#define colortext_selected(c)                                                  \
+    (colortext){                                                               \
+        .ch = c, .bg = {96, 96, 96}, .fg = {192, 192, 192}, .style = 0}
+
 char d_linum_text[32];
 
 // 很抱歉，但又是一坨
@@ -135,7 +143,18 @@ char d_linum_text[32];
 // 但写的还不错，甚至可以称为逻辑清晰
 // 2026-2-2
 // 现在还在调试这一坨
-void drawer_draw(drawer *dr) {
+void drawer_draw(drawer *dr, bool is_sel, coord sel_r) {
+    coord sel_l = dr->cursor;
+    if (is_sel && coord_cmp(sel_l, sel_r) > 0)
+        swap(sel_l, sel_r);
+#define colortext_auto(c)                                                      \
+    ({                                                                         \
+        coord pos = coord_new(y, x);                                           \
+        (is_sel && coord_cmp(sel_l, pos) <= 0 && coord_cmp(pos, sel_r) < 0)    \
+            ? colortext_selected(c)                                            \
+            : colortext_normal(c);                                             \
+    })
+
     if (dr->cfg.mode == DRAWER_MODE_HSCROLL) {
         for (size_t i = 0; i < dr->h; i++) {
             size_t y = dr->vscroll.y + i;
@@ -173,7 +192,7 @@ void drawer_draw(drawer *dr) {
                 cur_w = wcwidth(dr_line(y).v[x]);
                 if (w + cur_w > dr->hscroll + dr->w)
                     break;
-                vscreen_change(i, vx, colortext_normal(dr_at(y, x)));
+                vscreen_change(i, vx, colortext_auto(dr_at(y, x)));
                 w += cur_w, vx += cur_w;
             }
             if (x < dr_line(y).len)
@@ -224,7 +243,7 @@ void drawer_draw(drawer *dr) {
                 h++;
                 break;
             }
-            vscreen_change(vy, w + dr->linum_w, colortext_normal(dr_at(y, x)));
+            vscreen_change(vy, w + dr->linum_w, colortext_auto(dr_at(y, x)));
             w += cur_w;
         }
         while (w + dr->linum_w < dr->full_w) {
@@ -236,6 +255,7 @@ void drawer_draw(drawer *dr) {
         }
         vy++;
     }
+#undef colortext_auto
     // 2026-1-23
     // 貌似写完了，竟然就这么几行吗
     // 看来再也没有什么能阻挡我了（

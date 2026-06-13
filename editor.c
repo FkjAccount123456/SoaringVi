@@ -6,9 +6,20 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+charp_list e_mode_str;
+
 size_t e_mod_useradd_cur = M_USRADD;
 
-size_t e_mod_add() {
+void e_mode_init() {
+    e_mode_str = seq_init(charp_list);
+    seq_append(e_mode_str, "NORMAL");
+    seq_append(e_mode_str, "INSERT");
+    seq_append(e_mode_str, "VISUAL");
+    seq_append(e_mode_str, "COMMAND");
+}
+
+size_t e_mode_add(char *name) {
+    seq_append(e_mode_str, name);
     return e_mod_useradd_cur++;
 }
 
@@ -67,8 +78,11 @@ void buffer_draw(buffer *buf) {
     if (buf->h <= 0 || buf->w <= 0)
         return;
     coord cursor = drawer_setcursor(&buf->dr, buf->y, buf->x);
-    drawer_draw(&buf->dr);
-    if (buf->e->cur == buf)
+    if (buf->mode == M_VISUAL)
+        drawer_draw(&buf->dr, 1, buf->sel);
+    else
+        drawer_draw_nosel(&buf->dr);
+    if (buf->e->cur == buf && buf->mode != M_COMMAND)
         buf->e->cursor = cursor;
     _buffer_draw_modeline(buf);
 #ifdef DEBUG_MODE
@@ -85,20 +99,16 @@ void _buffer_cursor_up(buffer *buf) {
         buf->x = buf->ideal_x = 0;
     } else {
         buf->y--;
-        buf->x = buf->ideal_x;
-        if (buf->x >= buf_line(buf->y).len)
-            buf->x = buf_line(buf->y).len;
+        buf->x = min(buf->ideal_x, buf_line(buf->y).len);
     }
 }
 
 void _buffer_cursor_down(buffer *buf) {
     if (buf->y == buf_len() - 1) {
-        buf->x = buf->ideal_x = 0;
+        buf->x = buf->ideal_x = buf_line(buf->y).len;
     } else {
         buf->y++;
-        buf->x = buf->ideal_x;
-        if (buf->x >= buf_line(buf->y).len)
-            buf->x = buf_line(buf->y).len;
+        buf->x = min(buf->ideal_x, buf_line(buf->y).len);
     }
 }
 
@@ -109,7 +119,7 @@ void _buffer_cursor_left(buffer *buf) {
         buf->y--;
         buf->x = buf->ideal_x = buf_line(buf->y).len;
     } else {
-        buf->x--;
+        buf->x = buf->ideal_x = buf->x - 1;
     }
 }
 
@@ -120,7 +130,7 @@ void _buffer_cursor_right(buffer *buf) {
         buf->y++;
         buf->x = buf->ideal_x = 0;
     } else {
-        buf->x++;
+        buf->x = buf->ideal_x = buf->x + 1;
     }
 }
 
@@ -179,8 +189,8 @@ bool buffer_prockey(buffer *buf, char_t key) {
             rawstr ins = {&key, 1, 2, sizeof(char_t)};
             coord nxt = text_insert(&buf->mgr, coord_new(buf->y, buf->x), ins);
             buf->y = nxt.y, buf->x = buf->ideal_x = nxt.x;
-            return true;
         } else {
+            return true;
         }
         return false;
     } else if (buf->mode == M_VISUAL) {
@@ -214,13 +224,13 @@ bool editor_prockey(editor *e, char_t key) {
     if (key == K_CTRL('w')) {
         key = u_getch();
         if (key == 'h') {
-            window_split((window *)e->cur, 1, 1);
+            e->cur = window_split((window *)e->cur, 1, 1);
         } else if (key == 'l') {
-            window_split((window *)e->cur, 1, 0);
+            e->cur = window_split((window *)e->cur, 1, 0);
         } else if (key == 'k') {
-            window_split((window *)e->cur, 0, 1);
+            e->cur = window_split((window *)e->cur, 0, 1);
         } else if (key == 'j') {
-            window_split((window *)e->cur, 0, 0);
+            e->cur = window_split((window *)e->cur, 0, 0);
         } else if (key == K_CTRL('h') || key == K_BS) { // 可恶的Windows
             size_t y = buffer_calc_cursor(e->cur).y;
             buffer *new = window_find(left, (window *)e->cur, y);
@@ -254,14 +264,78 @@ bool editor_prockey(editor *e, char_t key) {
             window_resize_bottomup((window *)e->cur, e->cur->h, e->cur->w - 1);
         } else if (key == K_C_RIGHT) {
             window_resize_bottomup((window *)e->cur, e->cur->h, e->cur->w + 1);
-        } else if (key == K_CTRL('c')) {
-            editor_quit(e);
+        } else if (key == ':') {
+            editor_chmod_command(e);
+        } else {
+            return true;
+        }
+        return false;
+    } else if (e->cur->mode == M_COMMAND) {
+        if (key == K_ESC) {
+            e->msg.len = 0;
+            e->cur->mode = M_NORMAL;
+        } else if (key == '\n') {
+            e->cur->mode = M_NORMAL;
+            editor_proccmd(e);
+            e->msg.len = 0;
+        } else if (key == K_LEFT) {
+            if (e->msg_x > e->msg_start)
+                e->msg_x--;
+        } else if (key == K_RIGHT) {
+            if (e->msg_x < e->msg.len)
+                e->msg_x++;
+        } else if (key == K_BS) {
+            if (e->msg.len && e->msg_x) {
+                // 忘记提供seq_delete导致的
+                memmove(e->msg.v + e->msg_x - 1, e->msg.v + e->msg_x,
+                        e->msg.len - e->msg_x);
+                e->msg.len--;
+                e->msg_x--;
+            }
+            if (e->msg_x == 0) {
+                e->msg.len = 0;
+                e->cur->mode = M_NORMAL;
+            }
+        } else if (isprintable(key) || key > 128 && wcwidth(key)) {
+            seq_insert(e->msg, e->msg_x, &key, 1);
+            e->msg_x++;
         } else {
             return true;
         }
         return false;
     }
     return true;
+}
+
+bool _streq_32_8(char_t *s, char *x, size_t len) {
+    if (len == 0 && x && *x)
+        return false;
+    for (size_t i = 0; i < len; i++) {
+        if (s[i] != x[i])
+            return false;
+    }
+    return true;
+}
+
+void editor_proccmd(editor *e) {
+    char_t *cmd = e->msg.v + 1;
+    int cmd_len = e->msg.len - 1;
+    int i, j, k, l;
+    for (i = 0; i < cmd_len && isspace(cmd[i]); i++)
+        ;
+    for (j = i; j < cmd_len && !isspace(cmd[j]); j++)
+        ;
+    for (k = j; k < cmd_len && isspace(cmd[k]); k++)
+        ;
+    for (l = k; l < cmd_len && !isspace(cmd[l]); l++)
+        ;
+    char_t *head = cmd + i;
+    int head_len = j - i;
+#define match(x) _streq_32_8(head, x, head_len)
+    if (match("q")) {
+        editor_quit(e);
+    }
+#undef match
 }
 
 void split_init(split *sp, split *parent, int t, int l, int h, int w) {
@@ -518,7 +592,7 @@ buffer *window_split(window *w, bool is_vsp, bool is_pos_lt) {
             sp_child ch = {.win = (window *)new, .ratio = 0.5};
             seq_append(sp->chs, ch);
             ch.win = w;
-            seq_insert(sp->chs, 0, &ch, 1);
+            seq_append(sp->chs, ch);
         } else {
             sp_child ch = {.win = w, .ratio = 0.5};
             seq_append(sp->chs, ch);
@@ -624,7 +698,8 @@ void window_resize_bottomup(window *s, int h, int w) {
     split *p = s->parent;
     int minsize = 0;
     if (!p->is_vsp) {
-        minsize = e_sizesum(0, p->chs.len, window_calc_minsize(p->chs.v[i].win).y);
+        minsize =
+            e_sizesum(0, p->chs.len, window_calc_minsize(p->chs.v[i].win).y);
         minsize += h - s_minsize.y;
         if (p->h < minsize)
             window_resize_bottomup((window *)p, minsize, w);
@@ -632,7 +707,8 @@ void window_resize_bottomup(window *s, int h, int w) {
             window_resize_bottomup((window *)p, p->h, w);
         split_resize_child(p, _window_findselfindex(s), h);
     } else {
-        minsize = e_sizesum(0, p->chs.len, window_calc_minsize(p->chs.v[i].win).x + 1);
+        minsize = e_sizesum(0, p->chs.len,
+                            window_calc_minsize(p->chs.v[i].win).x + 1);
         minsize += w - s_minsize.x - 1;
         if (p->w < minsize)
             window_resize_bottomup((window *)p, h, minsize);
@@ -653,6 +729,8 @@ void editor_init(editor *e) {
     buffer_init(e->cur, NULL, 0, 0, e->h - 1, e->w);
     e->gwin = (window *)e->cur;
     e->running = false;
+
+    e->msg.v = NULL;
 
     e->_split_sizes = seq_init(intlist);
 }
@@ -675,10 +753,86 @@ void editor_quit(editor *e) {
     e->running = false;
 }
 
+void _editor_draw_msg(editor *e) {
+    if (e->cur->mode != M_NORMAL && e->cur->mode != M_COMMAND) {
+        if (e->gwin->h != e->h - 1)
+            window_resize(e->gwin, e->h - 1, e->w);
+        char *mode_str = e_mode_str.v[e->cur->mode];
+        int w = 0;
+        screen_change(&e->scr, e->gwin->h, w++, colortext_normal(' '));
+        screen_change(&e->scr, e->gwin->h, w++, colortext_normal('-'));
+        screen_change(&e->scr, e->gwin->h, w++, colortext_normal('-'));
+        screen_change(&e->scr, e->gwin->h, w++, colortext_normal(' '));
+        for (int i = 0; mode_str[i]; i++) {
+            int cw = wcwidth(mode_str[i]);
+            screen_change(&e->scr, e->gwin->h, w,
+                          colortext_normal(mode_str[i]));
+            w += cw;
+        }
+        screen_change(&e->scr, e->gwin->h, w++, colortext_normal(' '));
+        screen_change(&e->scr, e->gwin->h, w++, colortext_normal('-'));
+        screen_change(&e->scr, e->gwin->h, w++, colortext_normal('-'));
+        while (w < e->w)
+            screen_change(&e->scr, e->gwin->h, w++, colortext_normal(' '));
+        return;
+    }
+
+    int h = 1, w = 0, i;
+    for (int i = 0; i < e->msg.len; i++) {
+        int cw = wcwidth(e->msg.v[i]);
+        if (w + cw > e->w)
+            h++, w = 0;
+        w += cw;
+    }
+    if (e->gwin->h != e->h - h)
+        window_resize(e->gwin, e->h - h, e->w);
+    h = 0, w = 0;
+    for (i = 0; i < e->msg.len; i++) {
+        int cw = wcwidth(e->msg.v[i]);
+        if (i == e->msg_x && e->cur->mode == M_COMMAND) {
+            if (w < e->w)
+                e->cursor.y = e->gwin->h + h, e->cursor.x = w;
+            else
+                e->cursor.y = e->gwin->h + h + 1, e->cursor.x = 0;
+        }
+        if (w + cw > e->w)
+            h++, w = 0;
+        screen_change(&e->scr, e->gwin->h + h, w,
+                      colortext_normal(e->msg.v[i]));
+        w += cw;
+    }
+    if (i == e->msg_x && e->cur->mode == M_COMMAND)
+        e->cursor.y = e->gwin->h + h, e->cursor.x = w;
+    while (w < e->w)
+        screen_change(&e->scr, e->gwin->h + h, w++, colortext_normal(' '));
+}
+
 void editor_draw(editor *e) {
+    _editor_draw_msg(e);
+
     window_draw(e->gwin);
+
     screen_flush(&e->scr);
     gotoxy(e->cursor.y, e->cursor.x);
+}
+
+void editor_sendmsg(editor *e, rawstr msg) {
+    if (e->msg.v)
+        free(e->msg.v);
+    e->msg = msg;
+    e->msg_updtime = time(0);
+}
+
+void editor_chmod_command(editor *e) {
+    if (e->msg.v)
+        e->msg.len = 0;
+    else
+        e->msg = seq_init(rawstr);
+    seq_append(e->msg, ':');
+    e->cur->mode = M_COMMAND;
+    e->msg_x = 1;
+    e->msg_start = 1;
+    e->msg_updtime = time(0);
 }
 
 void editor_mainloop(editor *e) {

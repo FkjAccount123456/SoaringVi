@@ -151,6 +151,8 @@ typedef struct coord {
 
 #define coord_new(y, x) ((coord){y, x})
 
+int coord_cmp(coord a, coord b);
+
 #define min(a, b)                                                              \
     ({                                                                         \
         typeof(a) _a = a;                                                      \
@@ -320,6 +322,8 @@ enum {
 coord get_term_size();
 
 // 搞一些好用的宏吧
+// 2026-6-12
+// 好用在哪
 
 #define accumulate(restp, tp, i, start, end, val)                              \
     ({                                                                         \

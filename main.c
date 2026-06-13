@@ -14,6 +14,7 @@
 int main(int argc, char *argv[]) {
     u_init();
     init_window_vtable();
+    e_mode_init();
 
     editor e;
     editor_init(&e);
