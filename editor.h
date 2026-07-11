@@ -17,6 +17,7 @@ enum {
     M_INSERT,
     M_VISUAL,
     M_COMMAND,
+    M_GETCH,
 
     M_USRADD,
 };
@@ -35,6 +36,8 @@ typedef struct editor editor;
 typedef struct split split;
 typedef struct buffer buffer;
 typedef struct window_vtable window_vtable;
+
+typedef void (*e_callback_t)(editor *, void *);
 
 #define WINDOW_COMMON                                                          \
     int t, l, h, w;                                                            \
@@ -86,20 +89,34 @@ extern window_vtable winvt_split;
 
 void init_window_vtable();
 
+typedef struct filemgr {
+    bool is_file;
+    // 用:o/:e打开或确认写入
+    bool is_sync;
+    undo_node *ver;
+    size_t sync_time;
+    rawstr name;
+    char *name_mbs;
+    char *path_mbs;
+    textmgr mgr;
+} filemgr;
+
+void filemgr_open(filemgr *fm, rawstr name);
+
 typedef struct buffer {
     WINDOW_COMMON;
     drawer dr;
-    textmgr mgr;
+    textmgr *mgr;
     size_t y, x, ideal_x;
-    char *file;
+    filemgr *fm;
 
     int mode;
     coord sel;
 } buffer;
 
-#define buf_len() buf->mgr.text.len
-#define buf_line(y) buf->mgr.text.v[y]
-#define buf_at(y, x) buf->mgr.text.v[y].v[x]
+#define buf_len() buf->mgr->text.len
+#define buf_line(y) buf->mgr->text.v[y]
+#define buf_at(y, x) buf->mgr->text.v[y].v[x]
 
 void buffer_init(buffer *buf, split *parent, int t, int l, int h, int w);
 void buffer_free(buffer *buf);
@@ -114,6 +131,10 @@ void buffer_draw(buffer *buf);
 
 // 返回是否要fallback
 bool buffer_prockey(buffer *buf, char_t key);
+
+void buffer_openfile_byfm(buffer *buf, filemgr *fm);
+void buffer_openfile(buffer *buf, rawstr name, bool force);
+void buffer_writefile(buffer *buf, rawstr name, bool force);
 
 typedef struct window window;
 typedef struct sp_child sp_child;
@@ -143,6 +164,7 @@ typedef struct sp_child {
 
 typedef struct seq(split *) splits;
 typedef struct seq(buffer *) buffers;
+typedef struct seq(filemgr *) filemgrs;
 
 typedef struct seq(int) intlist;
 
@@ -152,11 +174,21 @@ typedef struct editor {
     buffer *cur;
     bool running;
     int h, w;
-    splits sps;
-    buffers bufs;
     coord cursor;
 
+    splits sps;
+    buffers bufs;
+    filemgrs files;
+
+    e_callback_t cb;
+    // 2026-7-8
+    // 能想到这种雷霆方法也是唐没边了，不过甚至性能还不错
+    // 例如对于大部分情况，可以直接传static/global的引用
+    // 对了为什么不把那堆全局变量变成static呢
+    void *cb_clos;
     rawstr msg;
+    char_t input_getch;
+    bool getch_move_cursor;
     int msg_x, msg_start;
     time_t msg_updtime;
 
@@ -169,15 +201,19 @@ void editor_free(editor *e);
 void editor_quit(editor *e);
 void editor_draw(editor *e);
 bool editor_prockey(editor *e, char_t key);
-void editor_proccmd(editor *e);
+void editor_proccmd(editor *e, void *clos);
 
 void editor_sendmsg(editor *e, rawstr msg);
+void editor_sendmsg_charp(editor *e, char *msg);
 
-void editor_chmod_command(editor *e);
+void editor_chmod_command(editor *e, e_callback_t cb, void *clos);
+void editor_chmod_getch(editor *e, e_callback_t cb, void *clos,
+                        bool move_cursor);
 
 void editor_mainloop(editor *e);
 
 split *editor_add_split(editor *e);
 buffer *editor_add_buffer(editor *e);
+filemgr *editor_add_file(editor *e);
 
 #endif // EDITOR_H

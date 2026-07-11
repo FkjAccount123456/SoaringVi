@@ -16,6 +16,7 @@ void e_mode_init() {
     seq_append(e_mode_str, "INSERT");
     seq_append(e_mode_str, "VISUAL");
     seq_append(e_mode_str, "COMMAND");
+    seq_append(e_mode_str, "GETCH");
 }
 
 size_t e_mode_add(char *name) {
@@ -26,18 +27,18 @@ size_t e_mode_add(char *name) {
 void buffer_init(buffer *buf, split *parent, int t, int l, int h, int w) {
     buf->parent = parent;
     buf->t = t, buf->l = l, buf->h = h, buf->w = w;
-    text_init(&buf->mgr);
-    drawer_init(&buf->dr, &buf->e->scr, &buf->mgr, t, l, h - 1, w,
+    buf->fm = editor_add_file(buf->e);
+    buf->mgr = &buf->fm->mgr;
+    drawer_init(&buf->dr, &buf->e->scr, buf->mgr, t, l, h - 1, w,
                 DRAWER_MODE_HSCROLL);
     drawer_setcfg(&buf->dr, (drawer_config){DRAWER_MODE_HSCROLL, true, 2, 2});
     buf->y = 0, buf->x = buf->ideal_x = 0;
     buf->sel.x = buf->sel.y = 0;
     buf->mode = M_NORMAL;
-    buf->file = NULL;
 }
 
 void buffer_free(buffer *buf) {
-    text_free(&buf->mgr);
+    text_free(buf->mgr);
 }
 
 void buffer_move(buffer *buf, int t, int l) {
@@ -63,10 +64,6 @@ void buffer_moveresize(buffer *buf, int t, int l, int h, int w) {
 void _buffer_draw_modeline(buffer *buf) {
     for (int i = 0; i < buf->w; i++)
         bscreen_change(buf->h - 1, i, colortext_statusline(L' '));
-    if (buf->file)
-        for (int i = 0; buf->file[i]; i++)
-            bscreen_change(buf->h - 1, i + 1,
-                           colortext_statusline(buf->file[i]));
 }
 
 #define colortext_note(x)                                                      \
@@ -82,7 +79,9 @@ void buffer_draw(buffer *buf) {
         drawer_draw(&buf->dr, 1, buf->sel);
     else
         drawer_draw_nosel(&buf->dr);
-    if (buf->e->cur == buf && buf->mode != M_COMMAND)
+    if (buf->e->cur == buf &&
+        !(buf->mode == M_COMMAND ||
+          buf->mode == M_GETCH && buf->e->getch_move_cursor))
         buf->e->cursor = cursor;
     _buffer_draw_modeline(buf);
 #ifdef DEBUG_MODE
@@ -134,12 +133,33 @@ void _buffer_cursor_right(buffer *buf) {
     }
 }
 
+void filemgr_open(filemgr *fm, rawstr name) {
+    
+}
+
+void buffer_openfile_byfm(buffer *buf, filemgr *fm) {
+    buf->fm = fm;
+    buf->mgr = &fm->mgr;
+    buf->x = buf->y = buf->ideal_x = 0;
+    buf->sel.x = buf->sel.y = 0;
+    drawer_set_mgr(&buf->dr, buf->mgr);
+}
+
+void buffer_openfile(buffer *buf, rawstr name, bool force) {
+    if (name.len == 0 && !buf->is_buf) {
+        editor_sendmsg_charp(buf->e, "No file name");
+        return;
+    }
+
+}
+
+void buffer_writefile(buffer *buf, rawstr name, bool force) {
+}
+
 // 仍然是临时的
 bool buffer_prockey(buffer *buf, char_t key) {
     if (buf->mode == M_NORMAL) {
-        if (key == K_CTRL('c')) {
-            editor_quit(buf->e);
-        } else if (key == 'i') {
+        if (key == 'i') {
             buf->mode = M_INSERT;
         } else if (key == 'v') {
             buf->mode = M_VISUAL;
@@ -153,10 +173,10 @@ bool buffer_prockey(buffer *buf, char_t key) {
         } else if (key == K_RIGHT || key == 'l') {
             _buffer_cursor_right(buf);
         } else if (key == 'u') {
-            coord cursor = text_undo(&buf->mgr);
+            coord cursor = text_undo(buf->mgr);
             buf->y = cursor.y, buf->x = buf->ideal_x = cursor.x;
         } else if (key == K_CTRL('r')) {
-            coord cursor = text_redo(&buf->mgr, -1);
+            coord cursor = text_redo(buf->mgr, -1);
             if (cursor.x != -1 && cursor.y != -1)
                 buf->y = cursor.y, buf->x = buf->ideal_x = cursor.x;
         } else {
@@ -183,11 +203,11 @@ bool buffer_prockey(buffer *buf, char_t key) {
             } else {
                 return false;
             }
-            text_delete(&buf->mgr, l, coord_new(buf->y, buf->x));
+            text_delete(buf->mgr, l, coord_new(buf->y, buf->x));
             buf->y = l.y, buf->ideal_x = buf->x = l.x;
         } else if (isprintable(key) || key > 128 && wcwidth(key)) {
             rawstr ins = {&key, 1, 2, sizeof(char_t)};
-            coord nxt = text_insert(&buf->mgr, coord_new(buf->y, buf->x), ins);
+            coord nxt = text_insert(buf->mgr, coord_new(buf->y, buf->x), ins);
             buf->y = nxt.y, buf->x = buf->ideal_x = nxt.x;
         } else {
             return true;
@@ -206,7 +226,7 @@ bool buffer_prockey(buffer *buf, char_t key) {
             _buffer_cursor_right(buf);
         } else if (key == 'd') {
             coord nxt =
-                text_delete(&buf->mgr, coord_new(buf->y, buf->x), buf->sel);
+                text_delete(buf->mgr, coord_new(buf->y, buf->x), buf->sel);
             buf->y = nxt.y, buf->x = buf->ideal_x = nxt.x;
             buf->mode = M_NORMAL;
         } else {
@@ -265,18 +285,20 @@ bool editor_prockey(editor *e, char_t key) {
         } else if (key == K_C_RIGHT) {
             window_resize_bottomup((window *)e->cur, e->cur->h, e->cur->w + 1);
         } else if (key == ':') {
-            editor_chmod_command(e);
+            editor_chmod_command(e, editor_proccmd, NULL);
+            editor_sendmsg_charp(e, ":");
         } else {
             return true;
         }
         return false;
     } else if (e->cur->mode == M_COMMAND) {
-        if (key == K_ESC) {
+        if (key == K_ESC || key == K_CTRL('c')) {
             e->msg.len = 0;
             e->cur->mode = M_NORMAL;
         } else if (key == '\n') {
+            e->cb(e, e->cb_clos);
             e->cur->mode = M_NORMAL;
-            editor_proccmd(e);
+            e->cb = NULL;
             e->msg.len = 0;
         } else if (key == K_LEFT) {
             if (e->msg_x > e->msg_start)
@@ -303,6 +325,10 @@ bool editor_prockey(editor *e, char_t key) {
             return true;
         }
         return false;
+    } else if (e->cur->mode == M_GETCH) {
+        e->input_getch = key;
+        e->cb(e, e->cb_clos);
+        e->cur->mode = M_NORMAL;
     }
     return true;
 }
@@ -317,7 +343,7 @@ bool _streq_32_8(char_t *s, char *x, size_t len) {
     return true;
 }
 
-void editor_proccmd(editor *e) {
+void editor_proccmd(editor *e, void *clos) {
     char_t *cmd = e->msg.v + 1;
     int cmd_len = e->msg.len - 1;
     int i, j, k, l;
@@ -329,11 +355,19 @@ void editor_proccmd(editor *e) {
         ;
     for (l = k; l < cmd_len && !isspace(cmd[l]); l++)
         ;
-    char_t *head = cmd + i;
-    int head_len = j - i;
+    char_t *head = cmd + i, *arg = cmd + k;
+    int head_len = j - i, arg_len = l - k;
 #define match(x) _streq_32_8(head, x, head_len)
     if (match("q")) {
         editor_quit(e);
+    } else if (match("e") || match("o")) {
+        rawstr name = seq_from_slice(rawstr, arg, arg_len);
+        buffer_openfile(e->cur, name, false);
+    } else if (match("w")) {
+        rawstr name = seq_from_slice(rawstr, arg, arg_len);
+        buffer_writefile(e->cur, name, false);
+    } else {
+        editor_sendmsg_charp(e, "Unknown command");
     }
 #undef match
 }
@@ -754,7 +788,8 @@ void editor_quit(editor *e) {
 }
 
 void _editor_draw_msg(editor *e) {
-    if (e->cur->mode != M_NORMAL && e->cur->mode != M_COMMAND) {
+    if (e->cur->mode != M_NORMAL && e->cur->mode != M_COMMAND &&
+        e->cur->mode != M_GETCH) {
         if (e->gwin->h != e->h - 1)
             window_resize(e->gwin, e->h - 1, e->w);
         char *mode_str = e_mode_str.v[e->cur->mode];
@@ -821,18 +856,37 @@ void editor_sendmsg(editor *e, rawstr msg) {
         free(e->msg.v);
     e->msg = msg;
     e->msg_updtime = time(0);
+    e->msg_x = msg.len;
+    e->msg_start = msg.len;
 }
 
-void editor_chmod_command(editor *e) {
-    if (e->msg.v)
-        e->msg.len = 0;
-    else
-        e->msg = seq_init(rawstr);
-    seq_append(e->msg, ':');
-    e->cur->mode = M_COMMAND;
-    e->msg_x = 1;
-    e->msg_start = 1;
+void editor_sendmsg_charp(editor *e, char *msg) {
+    size_t len = strlen(msg);
+    if (!e->msg.v) {
+        e->msg = seq_init_reserved(rawstr, len);
+    } else {
+        seq_expand_to(e->msg, len);
+    }
+    for (size_t i = 0; i < len; i++)
+        e->msg.v[i] = msg[i];
+    e->msg.len = len;
     e->msg_updtime = time(0);
+    e->msg_x = len;
+    e->msg_start = len;
+}
+
+void editor_chmod_command(editor *e, e_callback_t cb, void *clos) {
+    e->cur->mode = M_COMMAND;
+    e->cb = cb;
+    e->cb_clos = clos;
+}
+
+void editor_chmod_getch(editor *e, e_callback_t cb, void *clos,
+                        bool move_cursor) {
+    e->cur->mode = M_GETCH;
+    e->cb = cb;
+    e->cb_clos = clos;
+    e->getch_move_cursor = move_cursor;
 }
 
 void editor_mainloop(editor *e) {
@@ -862,6 +916,19 @@ buffer *editor_add_buffer(editor *e) {
     buf->vtable = &winvt_buffer;
     seq_append(e->bufs, buf);
     return seq_end(e->bufs);
+}
+
+filemgr *editor_add_file(editor *e) {
+    filemgr *file = malloc(sizeof(filemgr));
+    file->is_file = false;
+    file->is_sync = false;
+    file->sync_time = time(0);
+    file->name = str_init_by_charp("untitled");
+    file->path_mbs = file->name_mbs = NULL;
+    text_init(&file->mgr);
+    file->ver = file->mgr.undo_cur;
+    seq_append(e->files, file);
+    return file;
 }
 
 window_vtable winvt_buffer, winvt_split;

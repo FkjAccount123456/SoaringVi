@@ -11,6 +11,13 @@ void drawer_init(drawer *dr, screen *scr, textmgr *mgr, size_t y, size_t x,
     dr->cfg.mode = mode;
 }
 
+void drawer_set_mgr(drawer *dr, textmgr *mgr) {
+    dr->mgr = mgr;
+    dr->y = dr->x = 0;
+    dr->vscroll.x = dr->vscroll.y = 0;
+    dr->hscroll = 0;
+}
+
 void drawer_setcfg(drawer *dr, drawer_config cfg) {
     if (cfg.mode != dr->cfg.mode)
         dr->vscroll.x = 0;
@@ -133,8 +140,7 @@ void _d_fill_lntext(char *t, size_t w, size_t num) {
     (colortext){.ch = c, .bg = {0, 0, 0}, .fg = {192, 192, 192}, .style = 0}
 
 #define colortext_selected(c)                                                  \
-    (colortext){                                                               \
-        .ch = c, .bg = {96, 96, 96}, .fg = {192, 192, 192}, .style = 0}
+    (colortext){.ch = c, .bg = {96, 96, 96}, .fg = {192, 192, 192}, .style = 0}
 
 char d_linum_text[32];
 

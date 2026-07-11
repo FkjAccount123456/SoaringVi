@@ -82,11 +82,7 @@ void screen_flush(screen *scr) {
                     cotext_print(scr_data(y, x));
                     last_co = scr_data(y, x);
                 } else {
-#ifndef _WIN32
-                    printf("%lc", scr_data(y, x).ch);
-#else
-                    wprintf(L"%lc", scr_data(y, x).ch);
-#endif
+                    putchar_c32(scr_data(y, x).ch);
                 }
             }
         }

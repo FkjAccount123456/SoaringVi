@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
+#include <uchar.h>
 
 #define error(...)                                                             \
     do {                                                                       \
@@ -34,7 +35,17 @@
     ({                                                                         \
         T name;                                                                \
         name.len = 0, name.max = reserved, name.Tsize = sizeof(name.v[0]);     \
-        name.v = malloc(name.Tsize * (reserved));                              \
+        if (!name.max)                                                         \
+            name.max = 1;                                                      \
+        name.v = malloc(name.Tsize * name.max);                                \
+        name;                                                                  \
+    })
+
+#define seq_from_slice(T, _dest, _n)                                           \
+    ({                                                                         \
+        typeof(_n) _S_n = _n;                                                  \
+        T name = seq_init_reserved(T, _S_n);                                   \
+        memcpy(name.v, _dest, _S_n * name.Tsize);                              \
         name;                                                                  \
     })
 
@@ -114,13 +125,18 @@
 
 // 懒，直接用unicode吧，UTF-8太费劲
 typedef int char_t;
+typedef char byte_t;
 
 // SoaringVi的字符串不使用0结尾，而是指定长度
 // 显然，我将在C语言中使用神似Python的代码风格
 typedef struct seq(char_t) rawstr;
 typedef struct seq(rawstr) str_list;
 
+typedef struct seq(unsigned char) rawmbs;
+
 #define U_OBUF_SIZE 65536
+
+extern mbstate_t u_mbstate;
 
 void u_init();
 void u_fina();
@@ -167,8 +183,6 @@ int coord_cmp(coord a, coord b);
         _a < _b ? _b : _a;                                                     \
     })
 
-extern mbstate_t u_mbstate;
-
 void wstrcpy(char_t *dst, char_t *src);
 
 void u_init_ch2keymap();
@@ -185,9 +199,6 @@ bool u_kbhit();
 char_t u_getch();
 
 #define wait_until(ev) while (!(ev))
-
-char utf8_next(unsigned char ch);
-char utf8_cvt(const unsigned char *code, char_t *output);
 
 #define get_time(expr)                                                         \
     ({                                                                         \
@@ -344,5 +355,44 @@ coord get_term_size();
         for (size_t i = 0; i < _U_end; i++)                                    \
             dest[i] = expr;                                                    \
     } while (0)
+
+rawstr str_init_by_charp(char *b);
+
+void get_abspath(char *dest, char *f);
+
+#ifndef _WIN32
+#define U_PATH_MAX PATH_MAX
+#else
+#define U_PATH_MAX MAX_PATH
+#endif
+
+bool abspath_eq(char *a, char *b);
+
+#ifndef _WIN32
+#define get_msize malloc_usable_size
+#else
+#define get_msize _msize
+#endif
+
+byte_t c32_forward(char_t ch);
+
+byte_t u8_forward(unsigned char ch);
+byte_t u8_to_c32(unsigned char *mb, char_t *ch);
+byte_t u8_from_c32(unsigned char *mb, char_t ch);
+
+rawstr rawstr_from_u8(unsigned char *u8, size_t len);
+rawmbs rawmbs_from_c32(char_t *c32, size_t len);
+
+#ifdef _WIN32 // Windows我cnm
+
+#define u16_ispairh(c) (0xD800 <= (c) && (c) <= 0xDBFF)
+#define u16_ispairl(c) (0xDC00 <= (c) && (c) <= 0xDFFF)
+byte_t u16_from_c32(char_t c, wchar_t *u16);
+byte_t u16_to_c32(char_t *c, wchar_t *u16);
+rawstr rawstr_from_u16(wchar_t *s, size_t len);
+
+#endif
+
+void putchar_c32(char_t ch);
 
 #endif // UTILS_H

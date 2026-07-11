@@ -1,4 +1,5 @@
 #include "utils.h"
+#include "wcwidth/wcwidth.h"
 #include <locale.h>
 #include <stdio.h>
 #include <wchar.h>
@@ -12,7 +13,6 @@
 #include <sys/time.h>
 #include <termios.h>
 #include <unistd.h>
-
 #endif
 
 char u_obuf[U_OBUF_SIZE];
@@ -26,6 +26,9 @@ const char *u_style_map[8] = {
 
 #ifndef _WIN32
 struct termios u_orig_termios, u_raw_termios;
+#else
+HANDLE u_hStdOut;
+DWORD u_origDwMode;
 #endif
 
 trie u_ch2keymap;
@@ -46,17 +49,20 @@ void u_init_term() {
     u_raw_termios.c_cc[VTIME] = 1;
     tcsetattr(STDIN_FILENO, TCSADRAIN, &u_raw_termios);
 #else
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    u_hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
     DWORD dwMode = 0;
-    GetConsoleMode(hOut, &dwMode);
+    GetConsoleMode(u_hStdOut, &dwMode);
+    u_origDwMode = dwMode;
     dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-    SetConsoleMode(hOut, dwMode);
+    SetConsoleMode(u_hStdOut, dwMode);
 #endif
 }
 
 void u_fina_term() {
 #ifndef _WIN32
     tcsetattr(STDIN_FILENO, TCSADRAIN, &u_orig_termios);
+#else
+    SetConsoleMode(u_hStdOut, u_origDwMode);
 #endif
 }
 
@@ -129,11 +135,7 @@ void cotext_print(colortext c) {
     printf("%s", u_style_map[c.style]);
     printf("38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm", c.fg[0], c.fg[1], c.fg[2],
            c.bg[0], c.bg[1], c.bg[2]);
-#ifndef _WIN32
-    printf("%lc", c.ch);
-#else
-    wprintf(L"%lc", c.ch);
-#endif
+    putchar_c32(c.ch);
 }
 
 int coord_cmp(coord a, coord b) {
@@ -332,7 +334,9 @@ char_t u_basic_getch() {
         read(STDIN_FILENO, &res, 1);
     return res;
 #else
-    return _getch();
+    wchar_t res = _getwch();
+    log("%lc %d %x", res, res, res);
+    return res;
 #endif
 }
 
@@ -357,7 +361,7 @@ unsigned char u_inputs[10];
 char_t u_getch() {
     char i = 0;
     char_t ch = u_basic_getch();
-    if (u_ch2keymap.child[ch] && u_ch2keymap.child[ch]->is_leaf) {
+    if (ch < 256 && u_ch2keymap.child[ch] && u_ch2keymap.child[ch]->is_leaf) {
         return convert(char_t, u_ch2keymap.child[ch]->data);
     } else if (isprintable(ch)) {
         return ch;
@@ -393,50 +397,25 @@ char_t u_getch() {
                 return convert(char_t, t->data);
         }
         return K_UNKNOWN;
+#ifndef _WIN32
     } else if (mbrlen((char *)&ch, 1, &u_mbstate) == (size_t)-2) {
-        wchar_t res = K_UNKNOWN;
+        wchar_t res = 0;
         ch = u_basic_getch();
-        while (mbrtowc(&res, (char *)&ch, 1, &u_mbstate) == (size_t)-2)
+        while (mbrtowc((wchar_t *)&res, (char *)&ch, 1, &u_mbstate) ==
+               (size_t)-2)
             ch = u_basic_getch();
-        return res;
+        return res ? res : K_UNKNOWN;
+#else
+    } else if (u16_ispairh(ch)) {
+        wchar_t low = u_basic_getch();
+        if (u16_ispairl(low))
+            return 0x10000 + ((ch - 0xD800) << 10) + (low - 0xDC00);
+        return K_UNKNOWN;
+    } else if (wcwidth(ch)) {
+        return ch;
+#endif
     }
     return K_UNKNOWN;
-}
-
-char utf8_next(unsigned char ch) {
-    if (ch < 0x80)
-        return 1;
-    if ((ch & 0xE0) == 0xC0)
-        return 2;
-    if ((ch & 0xF0) == 0xE0)
-        return 3;
-    if ((ch & 0xF8) == 0xF0)
-        return 4;
-    return -1;
-}
-
-char utf8_cvt(const unsigned char *code, char_t *output) {
-    char nbytes;
-    wchar_t res = *code;
-    if (res < 0x80)
-        nbytes = 1, *output = res;
-    else if ((res & 0xE0) == 0xC0)
-        nbytes = 2, res &= 0x1F;
-    else if ((res & 0xF0) == 0xE0)
-        nbytes = 3, res &= 0x0F;
-    else if ((res & 0xF8) == 0xF0)
-        nbytes = 4, res &= 0x07;
-    else
-        return -1;
-
-    for (char i = 1; i < nbytes; i++) {
-        // if ((code[i] & 0xC0) != 0x80)
-        //     return -1;
-        res = (res << 6) | (code[i] & 0x3F);
-    }
-    *output = res;
-
-    return nbytes;
 }
 
 void trie_insert(trie *t, unsigned char *key, void *data) {
@@ -491,4 +470,81 @@ coord get_term_size() {
     term_h = w.ws_row, term_w = w.ws_col;
 #endif
     return coord_new(term_h, term_w);
+}
+
+rawstr str_init_by_charp(char *b) {
+    size_t len = strlen(b);
+    rawstr s = seq_init_reserved(rawstr, len);
+    for (size_t i = 0; i < len; i++)
+        seq_append(s, b[i]);
+    return s;
+}
+
+#ifdef _WIN32
+
+byte_t u16_from_c32(char_t c, wchar_t *u16) {
+    if (c >= 0x10000 && c <= 0x10FFFF) {
+        char_t offset = c - 0x10000;
+        u16[0] = 0xD800 + (offset >> 10);
+        u16[1] = 0xDC00 + (offset & 0x3FF);
+        return 2;
+    } else if (c < 0xD800) {
+        u16[0] = c;
+        return 1;
+    } else {
+        return 0;
+        ;
+    }
+}
+
+byte_t u16_to_c32(char_t *c, wchar_t *u16) {
+    if (u16[0] < 0xD800) {
+        c[0] = u16[0];
+        return 1;
+    } else {
+        c[0] = 0x10000 + ((u16[0] - 0xD800) << 10) + (u16[1] - 0xDC00);
+        return 2;
+    }
+}
+
+rawstr rawstr_from_u16(wchar_t *s, size_t len) {
+    rawstr res = seq_init_reserved(rawstr, len);
+    for (size_t i = 0; i < len; res.len++)
+        i += u16_to_c32(res.v + res.len, s + i);
+    return res;
+}
+
+#endif
+
+void putchar_c32(char_t ch) {
+#ifndef _WIN32
+    putwchar(ch);
+#else
+    static wchar_t u16[2];
+    static DWORD written;
+    switch (u16_from_c32(ch, u16)) {
+    case 2:
+        WriteConsoleW(u_hStdOut, u16, 2, &written, NULL);
+        break;
+    case 1:
+        putwchar(ch);
+        break;
+    }
+#endif
+}
+
+char _u_abspath[2][U_PATH_MAX + 1];
+
+void get_abspath(char *dest, char *f) {
+#ifndef _WIN32
+    realpath(dest, f);
+#else
+    _fullpath(dest, f, U_PATH_MAX);
+#endif
+}
+
+bool abspath_eq(char *a, char *b) {
+    get_abspath(_u_abspath[0], a);
+    get_abspath(_u_abspath[1], b);
+    return !strcmp(_u_abspath[0], _u_abspath[1]);
 }

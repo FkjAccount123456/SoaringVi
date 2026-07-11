@@ -22,6 +22,8 @@ for i in os.listdir("."):
 opts = []
 if "--debug" in sys.argv:
     opts.append("-O0 -g")
+elif "--check" in sys.argv:
+    opts.append("-fsyntax-only")
 else:
     opts.append("-O3")
 
