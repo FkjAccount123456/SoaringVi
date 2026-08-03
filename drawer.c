@@ -1,8 +1,7 @@
 #include "drawer.h"
 #include "wcwidth/wcwidth.h"
 
-void drawer_init(drawer *dr, screen *scr, textmgr *mgr, size_t y, size_t x,
-                 size_t h, size_t w, bool mode) {
+void drawer_init(drawer *dr, screen *scr, textmgr *mgr, size_t y, size_t x, size_t h, size_t w, bool mode) {
     memset(dr, 0, sizeof(drawer));
     dr->scr = scr;
     dr->mgr = mgr;
@@ -13,7 +12,6 @@ void drawer_init(drawer *dr, screen *scr, textmgr *mgr, size_t y, size_t x,
 
 void drawer_set_mgr(drawer *dr, textmgr *mgr) {
     dr->mgr = mgr;
-    dr->y = dr->x = 0;
     dr->vscroll.x = dr->vscroll.y = 0;
     dr->hscroll = 0;
 }
@@ -71,8 +69,7 @@ coord drawer_setcursor(drawer *dr, size_t y, size_t x) {
             else
                 dr->vscroll.y = 0;
         }
-        if (y + dr->cfg.vscroff + 1 > dr->vscroll.y + dr->h &&
-            y + dr->cfg.vscroff + 1 >= dr->h)
+        if (y + dr->cfg.vscroff + 1 > dr->vscroll.y + dr->h && y + dr->cfg.vscroff + 1 >= dr->h)
             dr->vscroll.y = y + dr->cfg.vscroff + 1 - dr->h;
         size_t w = 0;
         for (size_t i = 0; i < x; i++)
@@ -88,12 +85,10 @@ coord drawer_setcursor(drawer *dr, size_t y, size_t x) {
             w += wcwidth(dr->mgr->text.v[y].v[x]);
         else
             w++;
-        if (w + dr->cfg.hscroff > dr->hscroll + dr->w &&
-            w + dr->cfg.hscroff >= dr->w)
+        if (w + dr->cfg.hscroff > dr->hscroll + dr->w && w + dr->cfg.hscroff >= dr->w)
             dr->hscroll = w + dr->cfg.hscroff - dr->w;
         dr->cfg.vscroff = tmp, dr->cfg.hscroff = htmp;
-        return coord_new(y + dr->y - dr->vscroll.y,
-                         res_x + dr->x + dr->linum_w - dr->hscroll);
+        return coord_new(y + dr->y - dr->vscroll.y, res_x + dr->x + dr->linum_w - dr->hscroll);
     }
 
     coord cxy_vp = drawer_calcvhw(dr, y, x);
@@ -107,11 +102,8 @@ coord drawer_setcursor(drawer *dr, size_t y, size_t x) {
     dr->cfg.vscroff = tmp;
 
     if (y == dr->vscroll.y)
-        return coord_new(cxy_vp.y + dr->y - dr->vscroll.x - 1,
-                         cxy_vp.x + dr->x + dr->linum_w);
-    size_t cur_vh =
-        drawer_calcvhw(dr, dr->vscroll.y, dr_line(dr->vscroll.y).len).y -
-        dr->vscroll.x - 1;
+        return coord_new(cxy_vp.y + dr->y - dr->vscroll.x - 1, cxy_vp.x + dr->x + dr->linum_w);
+    size_t cur_vh = drawer_calcvhw(dr, dr->vscroll.y, dr_line(dr->vscroll.y).len).y - dr->vscroll.x - 1;
     cur_vh += cxy_vp.y;
     for (size_t i = dr->vscroll.y + 1; i < y; i++)
         cur_vh += drawer_calcvhw(dr, i, dr_line(i).len).y;
@@ -136,11 +128,9 @@ void _d_fill_lntext(char *t, size_t w, size_t num) {
         t[i] = ' ';
 }
 
-#define colortext_normal(c)                                                    \
-    (colortext){.ch = c, .bg = {0, 0, 0}, .fg = {192, 192, 192}, .style = 0}
+#define colortext_normal(c) (colortext){.ch = c, .bg = {0, 0, 0}, .fg = {192, 192, 192}, .style = 0}
 
-#define colortext_selected(c)                                                  \
-    (colortext){.ch = c, .bg = {96, 96, 96}, .fg = {192, 192, 192}, .style = 0}
+#define colortext_selected(c) (colortext){.ch = c, .bg = {96, 96, 96}, .fg = {192, 192, 192}, .style = 0}
 
 char d_linum_text[32];
 
@@ -153,12 +143,10 @@ void drawer_draw(drawer *dr, bool is_sel, coord sel_r) {
     coord sel_l = dr->cursor;
     if (is_sel && coord_cmp(sel_l, sel_r) > 0)
         swap(sel_l, sel_r);
-#define colortext_auto(c)                                                      \
-    ({                                                                         \
-        coord pos = coord_new(y, x);                                           \
-        (is_sel && coord_cmp(sel_l, pos) <= 0 && coord_cmp(pos, sel_r) < 0)    \
-            ? colortext_selected(c)                                            \
-            : colortext_normal(c);                                             \
+#define colortext_auto(c)                                                                                                  \
+    ({                                                                                                                     \
+        coord pos = coord_new(y, x);                                                                                       \
+        (is_sel && coord_cmp(sel_l, pos) <= 0 && coord_cmp(pos, sel_r) < 0) ? colortext_selected(c) : colortext_normal(c); \
     })
 
     if (dr->cfg.mode == DRAWER_MODE_HSCROLL) {

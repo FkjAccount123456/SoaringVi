@@ -6,3 +6,5 @@ log.txt
 smallest
 *.exe
 .vs
+.idea/
+share/

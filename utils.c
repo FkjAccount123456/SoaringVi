@@ -3,6 +3,8 @@
 #include <locale.h>
 #include <stdio.h>
 #include <wchar.h>
+#include <time.h>
+#include <sys/stat.h>
 
 #ifdef _WIN32
 #include <conio.h>
@@ -69,6 +71,8 @@ void u_fina_term() {
 void u_init() {
     u_init_term();
 
+    encoding_init();
+
 #ifdef DEBUG_MODE
     u_init_log();
 #endif
@@ -90,6 +94,8 @@ void u_fina() {
     setvbuf(stdout, u_obuf, _IOFBF, U_OBUF_SIZE);
 
     u_fina_term();
+
+    encoding_fina();
 
 #ifdef DEBUG_MODE
     u_fina_log();
@@ -335,7 +341,6 @@ char_t u_basic_getch() {
     return res;
 #else
     wchar_t res = _getwch();
-    log("%lc %d %x", res, res, res);
     return res;
 #endif
 }
@@ -359,6 +364,7 @@ bool u_kbhit() {
 unsigned char u_inputs[10];
 
 char_t u_getch() {
+    mbsinit(&u_mbstate);
     char i = 0;
     char_t ch = u_basic_getch();
     if (ch < 256 && u_ch2keymap.child[ch] && u_ch2keymap.child[ch]->is_leaf) {
@@ -409,7 +415,7 @@ char_t u_getch() {
     } else if (u16_ispairh(ch)) {
         wchar_t low = u_basic_getch();
         if (u16_ispairl(low))
-            return 0x10000 + ((ch - 0xD800) << 10) + (low - 0xDC00);
+            return u16_to_c32_macro(ch, low);
         return K_UNKNOWN;
     } else if (wcwidth(ch)) {
         return ch;
@@ -480,42 +486,6 @@ rawstr str_init_by_charp(char *b) {
     return s;
 }
 
-#ifdef _WIN32
-
-byte_t u16_from_c32(char_t c, wchar_t *u16) {
-    if (c >= 0x10000 && c <= 0x10FFFF) {
-        char_t offset = c - 0x10000;
-        u16[0] = 0xD800 + (offset >> 10);
-        u16[1] = 0xDC00 + (offset & 0x3FF);
-        return 2;
-    } else if (c < 0xD800) {
-        u16[0] = c;
-        return 1;
-    } else {
-        return 0;
-        ;
-    }
-}
-
-byte_t u16_to_c32(char_t *c, wchar_t *u16) {
-    if (u16[0] < 0xD800) {
-        c[0] = u16[0];
-        return 1;
-    } else {
-        c[0] = 0x10000 + ((u16[0] - 0xD800) << 10) + (u16[1] - 0xDC00);
-        return 2;
-    }
-}
-
-rawstr rawstr_from_u16(wchar_t *s, size_t len) {
-    rawstr res = seq_init_reserved(rawstr, len);
-    for (size_t i = 0; i < len; res.len++)
-        i += u16_to_c32(res.v + res.len, s + i);
-    return res;
-}
-
-#endif
-
 void putchar_c32(char_t ch) {
 #ifndef _WIN32
     putwchar(ch);
@@ -527,24 +497,33 @@ void putchar_c32(char_t ch) {
         WriteConsoleW(u_hStdOut, u16, 2, &written, NULL);
         break;
     case 1:
-        putwchar(ch);
+        wprintf(L"%lc", ch);
         break;
     }
 #endif
 }
 
-char _u_abspath[2][U_PATH_MAX + 1];
-
-void get_abspath(char *dest, char *f) {
+char *get_abspath(char *f) {
+    FILE *x = fopen(f, "r");
+    if (!x)
+        return NULL;
+    fclose(x);
 #ifndef _WIN32
-    realpath(dest, f);
+    return realpath(f, NULL);
 #else
-    _fullpath(dest, f, U_PATH_MAX);
+    return _fullpath(NULL, f, 0);
 #endif
 }
 
-bool abspath_eq(char *a, char *b) {
-    get_abspath(_u_abspath[0], a);
-    get_abspath(_u_abspath[1], b);
-    return !strcmp(_u_abspath[0], _u_abspath[1]);
+size_t get_file_updtime(char *f) {
+#ifndef _WIN32
+    struct stat s;
+    if (stat(f, &s))
+        return 0;
+#else
+    struct _stat s;
+    if (_stat(f, &s))
+        return 0;
+#endif
+    return s.st_mtime;
 }

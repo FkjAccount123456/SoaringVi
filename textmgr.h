@@ -15,14 +15,14 @@ typedef struct edit_history {
     rawstr v;
 } edit_history;
 
-#define history_nop()                                                          \
-    (edit_history) {                                                           \
-        .tp = OPERT_NOP                                                        \
+#define history_nop()   \
+    (edit_history) {    \
+        .tp = OPERT_NOP \
     }
 
-#define history_new(_tp, _l, _r, _v)                                           \
-    (edit_history) {                                                           \
-        .tp = _tp, .l = _l, .r = _r, .v = _v                                   \
+#define history_new(_tp, _l, _r, _v)         \
+    (edit_history) {                         \
+        .tp = _tp, .l = _l, .r = _r, .v = _v \
     }
 
 typedef struct undo_node undo_node;
@@ -35,9 +35,8 @@ typedef struct undo_node {
     size_t time;
 } undo_node;
 
-#define undo_node_init(node, _op, _prev)                                       \
-    (node)->op = _op, (node)->prev = _prev,                                    \
-    (node)->next = seq_init_reserved(undo_list, 1)
+#define undo_node_init(node, _op, _prev) (node)->op = _op, (node)->prev = _prev, (node)->next = seq_init_reserved(undo_list, 1)
+void undo_free(undo_node *node);
 
 // 存储时最后必须另外补充一个空行
 // 2026-2-4
@@ -55,6 +54,7 @@ int coord_cmp(coord a, coord b);
 void text_init(textmgr *mgr);
 void text_free(textmgr *mgr);
 
+void text_clear(textmgr *mgr);
 void text_add_history(textmgr *mgr, edit_history op, bool pass_ownership);
 coord text_undo(textmgr *mgr);
 coord text_redo(textmgr *mgr, size_t branch);
@@ -66,6 +66,9 @@ coord text_insert_processed(textmgr *mgr, coord pos, str_list data);
 // textmgr用左开右闭区间，相比Python版的全闭实现逻辑更简单一点
 coord text_delete(textmgr *mgr, coord l, coord r);
 rawstr text_get(textmgr *mgr, coord l, coord r);
+
+bool text_read(textmgr *mgr, FILE *f);
+bool text_write(textmgr *mgr, FILE *f);
 
 #define text_line(y) mgr->text.v[y]
 #define text_at(y, x) mgr->text.v[y].v[x]

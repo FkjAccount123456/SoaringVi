@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <wchar.h>
 
-
 void screen_free(screen *scr) {
     free(scr->data);
     free(scr->prev);
@@ -107,7 +106,7 @@ void screen_flush(screen *scr) {
 #ifndef _WIN32
                     printf("%lc", scr_data(y, x).ch);
 #else
-                    wprintf(L"%lc", scr_data(y, x).ch);
+                    putchar_c32(scr_data(y, x).ch);
 #endif
                 }
                 last_pos = coord_new(y, x);

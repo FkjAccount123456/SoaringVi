@@ -29,8 +29,7 @@ void buffer_init(buffer *buf, split *parent, int t, int l, int h, int w) {
     buf->t = t, buf->l = l, buf->h = h, buf->w = w;
     buf->fm = editor_add_file(buf->e);
     buf->mgr = &buf->fm->mgr;
-    drawer_init(&buf->dr, &buf->e->scr, buf->mgr, t, l, h - 1, w,
-                DRAWER_MODE_HSCROLL);
+    drawer_init(&buf->dr, &buf->e->scr, buf->mgr, t, l, h - 1, w, DRAWER_MODE_HSCROLL);
     drawer_setcfg(&buf->dr, (drawer_config){DRAWER_MODE_HSCROLL, true, 2, 2});
     buf->y = 0, buf->x = buf->ideal_x = 0;
     buf->sel.x = buf->sel.y = 0;
@@ -38,7 +37,6 @@ void buffer_init(buffer *buf, split *parent, int t, int l, int h, int w) {
 }
 
 void buffer_free(buffer *buf) {
-    text_free(buf->mgr);
 }
 
 void buffer_move(buffer *buf, int t, int l) {
@@ -56,41 +54,44 @@ void buffer_moveresize(buffer *buf, int t, int l, int h, int w) {
     buffer_resize(buf, h, w);
 }
 
-#define colortext_statusline(x)                                                \
-    (colortext) {                                                              \
-        .fg = {0, 0, 0}, .bg = {192, 192, 192}, .style = 0, .ch = x            \
+#define colortext_statusline(x)                                     \
+    (colortext) {                                                   \
+        .fg = {0, 0, 0}, .bg = {192, 192, 192}, .style = 0, .ch = x \
     }
 
 void _buffer_draw_modeline(buffer *buf) {
     for (int i = 0; i < buf->w; i++)
         bscreen_change(buf->h - 1, i, colortext_statusline(L' '));
+    if (buf->fm->name.len) {
+        for (int i = 0; i < buf->fm->name.len; i++)
+            bscreen_change(buf->h - 1, i + 1, colortext_statusline(buf->fm->name.v[i]));
+    } else {
+        char s[] = "untitled";
+        for (int i = 0; s[i]; i++)
+            bscreen_change(buf->h - 1, i + 1, colortext_statusline(s[i]));
+    }
 }
 
-#define colortext_note(x)                                                      \
-    (colortext) {                                                              \
-        .fg = {0, 0, 0}, .bg = {255, 0, 0}, .style = 0, .ch = x                \
+#define colortext_note(x)                                       \
+    (colortext) {                                               \
+        .fg = {0, 0, 0}, .bg = {255, 0, 0}, .style = 0, .ch = x \
     }
 
 void buffer_draw(buffer *buf) {
     if (buf->h <= 0 || buf->w <= 0)
         return;
+    if (buf->y >= buf->mgr->text.len)
+        buf->y = buf->mgr->text.len - 1;
+    if (buf->x > buf_line(buf->y).len)
+        buf->x = buf_line(buf->y).len;
     coord cursor = drawer_setcursor(&buf->dr, buf->y, buf->x);
     if (buf->mode == M_VISUAL)
         drawer_draw(&buf->dr, 1, buf->sel);
     else
         drawer_draw_nosel(&buf->dr);
-    if (buf->e->cur == buf &&
-        !(buf->mode == M_COMMAND ||
-          buf->mode == M_GETCH && buf->e->getch_move_cursor))
+    if (buf->e->cur == buf && !(buf->mode == M_COMMAND || buf->mode == M_GETCH && buf->e->getch_move_cursor))
         buf->e->cursor = cursor;
     _buffer_draw_modeline(buf);
-#ifdef DEBUG_MODE
-    drawer *dr = &buf->dr;
-    vscreen_change(0, 0, colortext_note(' '));
-    vscreen_change(0, dr->full_w - 1, colortext_note(' '));
-    vscreen_change(dr->h - 1, 0, colortext_note(' '));
-    vscreen_change(dr->h - 1, dr->full_w - 1, colortext_note(' '));
-#endif // DEBUG_MODE
 }
 
 void _buffer_cursor_up(buffer *buf) {
@@ -133,8 +134,72 @@ void _buffer_cursor_right(buffer *buf) {
     }
 }
 
-void filemgr_open(filemgr *fm, rawstr name) {
-    
+void filemgr_open(filemgr *fm, rawstr name, char *name_mbs, char *path_mbs, FILE *f) {
+    do_if_exist(free, fm->name.v);
+    do_if_exist(free, fm->name_mbs);
+    do_if_exist(free, fm->path_mbs);
+    fm->name = name;
+    fm->name_mbs = name_mbs;
+    fm->path_mbs = path_mbs;
+    if (!f) {
+        fm->is_sync = false;
+    } else {
+        if (!fm->path_mbs || !text_read(&fm->mgr, f)) {
+            editor_sendmsg_charp(fm->e, "Failed to read file");
+            fm->is_sync = false;
+        } else {
+            fm->is_sync = true;
+            fm->sync_time = get_file_updtime(fm->path_mbs);
+        }
+    }
+    fm->ver = fm->mgr.undo_cur;
+}
+
+void filemgr_reopen(filemgr *fm) {
+    if (!fm->path_mbs)
+        fm->path_mbs = get_abspath(fm->name_mbs);
+    if (!fm->path_mbs) {
+        editor_sendmsg_charp(fm->e, "File name not given");
+        return;
+    }
+    FILE *f = fopen(fm->name_mbs, "r");
+    if (!f || !text_read(&fm->mgr, f)) {
+        editor_sendmsg_charp(fm->e, "Failed to read file");
+        fm->is_sync = false;
+    } else {
+        fm->is_sync = true;
+        fm->sync_time = get_file_updtime(fm->path_mbs);
+    }
+    fm->ver = fm->mgr.undo_cur;
+}
+
+void filemgr_write(filemgr *fm, FILE *f, char *name_mbs) {
+    if (text_write(&fm->mgr, f)) {
+        fm->is_sync = true;
+        fm->sync_time = get_file_updtime(name_mbs);
+    } else {
+        editor_sendmsg_charp(fm->e, "Failed to write file");
+        fm->is_sync = false;
+    }
+}
+
+void filemgr_setname(filemgr *fm, rawstr name, char *name_mbs, char *path_mbs) {
+    fm->name = name;
+    do_if_exist(free, fm->name_mbs);
+    do_if_exist(free, fm->path_mbs);
+    fm->path_mbs = path_mbs;
+    fm->name_mbs = name_mbs;
+}
+
+void filemgr_free(filemgr *fm) {
+    do_if_exist(free, fm->name.v);
+    do_if_exist(free, fm->name_mbs);
+    do_if_exist(free, fm->path_mbs);
+    text_free(&fm->mgr);
+}
+
+bool filemgr_is_sync(filemgr *fm) {
+    return fm->path_mbs && fm->is_sync && get_file_updtime(fm->name_mbs) <= fm->sync_time;
 }
 
 void buffer_openfile_byfm(buffer *buf, filemgr *fm) {
@@ -146,14 +211,108 @@ void buffer_openfile_byfm(buffer *buf, filemgr *fm) {
 }
 
 void buffer_openfile(buffer *buf, rawstr name, bool force) {
-    if (name.len == 0 && !buf->is_buf) {
+    if (!name.len && !buf->fm->path_mbs) {
         editor_sendmsg_charp(buf->e, "No file name");
         return;
     }
-
+    char *name_mbs = NULL, *path_mbs = NULL;
+    if (name.len) {
+        name_mbs = (char *)rawmbs_from_c32(name.v, name.len).v;
+        path_mbs = get_abspath(name_mbs);
+    }
+    if (!name.len || path_mbs && buf->fm->path_mbs && !strcmp(buf->fm->path_mbs, path_mbs)) {
+        if (force)
+            filemgr_reopen(buf->fm), buf->x = buf->y = buf->ideal_x = 0;
+        else
+            editor_sendmsg_charp(buf->e, "Use :e! to reopen file");
+    } else if (path_mbs) {
+        filemgr *fm = editor_find_fm(buf->e, path_mbs);
+        if (fm) {
+            buffer_openfile_byfm(buf, fm);
+        } else {
+            FILE *f = fopen(name_mbs, "r");
+            if (!f) {
+                editor_sendmsg_charp(buf->e, "Failed to read file");
+                name_mbs = path_mbs = NULL, name.v = NULL;
+            } else {
+                buf->fm = editor_add_file(buf->e);
+                filemgr_open(buf->fm, name, name_mbs, path_mbs, f);
+                buffer_openfile_byfm(buf, buf->fm);
+                name_mbs = path_mbs = NULL, name.v = NULL;
+            }
+        }
+    } else {
+        buf->fm = editor_add_file(buf->e);
+        buf->fm->name = name, buf->fm->name_mbs = name_mbs, buf->fm->path_mbs = NULL;
+        name.v = NULL, name_mbs = NULL;
+    }
+    do_if_exist(free, name.v);
+    do_if_exist(free, name_mbs);
+    do_if_exist(free, path_mbs);
 }
 
+// 获取name的所有权
 void buffer_writefile(buffer *buf, rawstr name, bool force) {
+    char *name_mbs = 0, *path_mbs = 0;
+    if (name.len) {
+        name_mbs = rawmbs_from_c32(name.v, name.len).v;
+        path_mbs = get_abspath(name_mbs);
+    }
+    do_if_exist(free, buf->fm->path_mbs);
+    buf->fm->path_mbs = get_abspath(buf->fm->name_mbs);
+    if (!name.len || path_mbs && buf->fm->path_mbs && !strcmp(path_mbs, buf->fm->path_mbs)) {
+        if (!buf->fm->name.len) {
+            editor_sendmsg_charp(buf->e, "No file name");
+        } else {
+            if (force || !path_mbs || filemgr_is_sync(buf->fm)) {
+                FILE *f = fopen(buf->fm->name_mbs, "w");
+                if (!f)
+                    editor_sendmsg_charp(buf->e, "Failed to open file");
+                else
+                    filemgr_write(buf->fm, f, buf->fm->name_mbs);
+            } else {
+                editor_sendmsg_charp(buf->e, "File written since last change, use :w! to force write");
+            }
+        }
+    } else {
+        if (!path_mbs || force) {
+            filemgr *fm;
+            if (path_mbs && (fm = editor_find_fm(buf->e, path_mbs))) { // 此时force必定成立
+                text_free(&fm->mgr);
+                fm->mgr = buf->fm->mgr;
+                do_if_exist(free, buf->fm->name.v);
+                do_if_exist(free, buf->fm->name_mbs);
+                do_if_exist(free, buf->fm->path_mbs);
+                for (size_t i = 0; i < buf->e->files.len; i++)
+                    if (buf->e->files.v[i] == buf->fm)
+                        seq_remove(buf->e->files, i);
+                for (size_t i = 0; i < buf->e->bufs.len; i++)
+                    if (buf->e->bufs.v[i]->fm == fm || buf->e->bufs.v[i]->fm == buf->fm)
+                        buffer_openfile_byfm(buf->e->bufs.v[i], fm);
+                buf->fm = fm;
+                FILE *f = fopen(buf->fm->name_mbs, "w");
+                if (!f)
+                    editor_sendmsg_charp(buf->e, "Failed to open file");
+                else
+                    filemgr_write(buf->fm, f, buf->fm->name_mbs);
+            } else {
+                FILE *f = fopen(name_mbs, "w");
+                if (!f) {
+                    editor_sendmsg_charp(buf->e, "Failed to open file");
+                } else {
+                    filemgr_write(buf->fm, f, name_mbs);
+                    path_mbs = get_abspath(name_mbs);
+                    filemgr_setname(buf->fm, name, name_mbs, path_mbs);
+                    name.v = NULL, name_mbs = path_mbs = NULL;
+                }
+            }
+        } else {
+            editor_sendmsg_charp(buf->e, "File exists, use :w! to force write");
+        }
+    }
+    do_if_exist(free, name.v);
+    do_if_exist(free, name_mbs);
+    do_if_exist(free, path_mbs);
 }
 
 // 仍然是临时的
@@ -205,7 +364,7 @@ bool buffer_prockey(buffer *buf, char_t key) {
             }
             text_delete(buf->mgr, l, coord_new(buf->y, buf->x));
             buf->y = l.y, buf->ideal_x = buf->x = l.x;
-        } else if (isprintable(key) || key > 128 && wcwidth(key)) {
+        } else if (isprintable(key) || key > 128 && key <= 0x10FFFF && wcwidth(key)) {
             rawstr ins = {&key, 1, 2, sizeof(char_t)};
             coord nxt = text_insert(buf->mgr, coord_new(buf->y, buf->x), ins);
             buf->y = nxt.y, buf->x = buf->ideal_x = nxt.x;
@@ -225,8 +384,7 @@ bool buffer_prockey(buffer *buf, char_t key) {
         } else if (key == K_RIGHT || key == 'l') {
             _buffer_cursor_right(buf);
         } else if (key == 'd') {
-            coord nxt =
-                text_delete(buf->mgr, coord_new(buf->y, buf->x), buf->sel);
+            coord nxt = text_delete(buf->mgr, coord_new(buf->y, buf->x), buf->sel);
             buf->y = nxt.y, buf->x = buf->ideal_x = nxt.x;
             buf->mode = M_NORMAL;
         } else {
@@ -296,10 +454,11 @@ bool editor_prockey(editor *e, char_t key) {
             e->msg.len = 0;
             e->cur->mode = M_NORMAL;
         } else if (key == '\n') {
-            e->cb(e, e->cb_clos);
             e->cur->mode = M_NORMAL;
-            e->cb = NULL;
+            e_callback_t cb = e->cb;
+            size_t len = e->msg.len;
             e->msg.len = 0;
+            e->cb(e, e->cb_clos, len);
         } else if (key == K_LEFT) {
             if (e->msg_x > e->msg_start)
                 e->msg_x--;
@@ -309,16 +468,16 @@ bool editor_prockey(editor *e, char_t key) {
         } else if (key == K_BS) {
             if (e->msg.len && e->msg_x) {
                 // 忘记提供seq_delete导致的
-                memmove(e->msg.v + e->msg_x - 1, e->msg.v + e->msg_x,
-                        e->msg.len - e->msg_x);
-                e->msg.len--;
+                // 2026-8-2
+                // 现在提供了
+                seq_remove(e->msg, e->msg_x - 1);
                 e->msg_x--;
             }
             if (e->msg_x == 0) {
                 e->msg.len = 0;
                 e->cur->mode = M_NORMAL;
             }
-        } else if (isprintable(key) || key > 128 && wcwidth(key)) {
+        } else if (isprintable(key) || key > 128 && key <= 0x10FFFF && wcwidth(key)) {
             seq_insert(e->msg, e->msg_x, &key, 1);
             e->msg_x++;
         } else {
@@ -327,8 +486,8 @@ bool editor_prockey(editor *e, char_t key) {
         return false;
     } else if (e->cur->mode == M_GETCH) {
         e->input_getch = key;
-        e->cb(e, e->cb_clos);
         e->cur->mode = M_NORMAL;
+        e->cb(e, e->cb_clos, 1);
     }
     return true;
 }
@@ -343,9 +502,9 @@ bool _streq_32_8(char_t *s, char *x, size_t len) {
     return true;
 }
 
-void editor_proccmd(editor *e, void *clos) {
+void editor_proccmd(editor *e, void *clos, size_t len) {
     char_t *cmd = e->msg.v + 1;
-    int cmd_len = e->msg.len - 1;
+    int cmd_len = len - 1;
     int i, j, k, l;
     for (i = 0; i < cmd_len && isspace(cmd[i]); i++)
         ;
@@ -363,9 +522,15 @@ void editor_proccmd(editor *e, void *clos) {
     } else if (match("e") || match("o")) {
         rawstr name = seq_from_slice(rawstr, arg, arg_len);
         buffer_openfile(e->cur, name, false);
+    } else if (match("e!") || match("o!")) {
+        rawstr name = seq_from_slice(rawstr, arg, arg_len);
+        buffer_openfile(e->cur, name, true);
     } else if (match("w")) {
         rawstr name = seq_from_slice(rawstr, arg, arg_len);
         buffer_writefile(e->cur, name, false);
+    } else if (match("w!")) {
+        rawstr name = seq_from_slice(rawstr, arg, arg_len);
+        buffer_writefile(e->cur, name, true);
     } else {
         editor_sendmsg_charp(e, "Unknown command");
     }
@@ -384,16 +549,14 @@ void split_free(split *sp) {
     seq_free(sp->chs);
 }
 
-#define colortext_normal(c)                                                    \
-    (colortext){.ch = c, .bg = {0, 0, 0}, .fg = {192, 192, 192}, .style = 0}
+#define colortext_normal(c) (colortext){.ch = c, .bg = {0, 0, 0}, .fg = {192, 192, 192}, .style = 0}
 
 void split_draw(split *sp) {
     window_draw(sp->chs.v[0].win);
     for (int i = 1; i < sp->chs.len; i++) {
         if (sp->is_vsp)
             for (int y = 0; y < sp->h; y++)
-                screen_change(&sp->e->scr, sp->t + y, sp->chs.v[i].win->l - 1,
-                              colortext_normal('|'));
+                screen_change(&sp->e->scr, sp->t + y, sp->chs.v[i].win->l - 1, colortext_normal('|'));
         window_draw(sp->chs.v[i].win);
     }
 }
@@ -401,8 +564,7 @@ void split_draw(split *sp) {
 void split_move(split *sp, int t, int l) {
     long long dt = t - sp->t, dl = l - sp->l;
     for (int i = 0; i < sp->chs.len; i++)
-        window_move(sp->chs.v[i].win, sp->chs.v[i].win->t + dt,
-                    sp->chs.v[i].win->l + dl);
+        window_move(sp->chs.v[i].win, sp->chs.v[i].win->t + dt, sp->chs.v[i].win->l + dl);
     sp->t = t, sp->l = l;
 }
 
@@ -414,8 +576,7 @@ void split_resize(split *sp, int h, int w) {
 void _split_adjust_ratio(split *sp) {
     if (sp->is_vsp) {
         for (int i = 0; i < sp->chs.len; i++)
-            sp->chs.v[i].ratio =
-                (sp->chs.v[i].win->w + (i != sp->chs.len - 1)) / (double)sp->w;
+            sp->chs.v[i].ratio = (sp->chs.v[i].win->w + (i != sp->chs.len - 1)) / (double)sp->w;
     } else {
         for (int i = 0; i < sp->chs.len; i++)
             sp->chs.v[i].ratio = sp->chs.v[i].win->h / (double)sp->h;
@@ -448,41 +609,35 @@ void _split_relay(split *sp) {
     if (!sp->is_vsp) {
         postsum[sp->chs.len] = 0;
         for (int i = sp->chs.len; i > 0; i--)
-            postsum[i - 1] =
-                postsum[i] + window_calc_minsize(sp->chs.v[i - 1].win).y;
+            postsum[i - 1] = postsum[i] + window_calc_minsize(sp->chs.v[i - 1].win).y;
         sum_size = sp->h;
         for (int i = 0; i < sp->chs.len - 1; i++) {
             window *ch = sp->chs.v[i].win;
             int min_size = window_calc_minsize(ch).y;
             int max_size = sum_size - postsum[i + 1];
             max_size = max(0, max_size);
-            int new_size =
-                min(max_size, max(min_size, (int)(sp->h * sp->chs.v[i].ratio)));
+            int new_size = min(max_size, max(min_size, (int)(sp->h * sp->chs.v[i].ratio)));
             sum_size -= new_size;
             window_moveresize(ch, sp->t + pos, sp->l, new_size, sp->w);
             pos += new_size;
         }
-        window_moveresize(seq_end(sp->chs).win, sp->t + pos, sp->l, sum_size,
-                          sp->w);
+        window_moveresize(seq_end(sp->chs).win, sp->t + pos, sp->l, sum_size, sp->w);
     } else {
         postsum[sp->chs.len] = -1;
         for (int i = sp->chs.len; i > 0; i--)
-            postsum[i - 1] =
-                postsum[i] + window_calc_minsize(sp->chs.v[i - 1].win).x + 1;
+            postsum[i - 1] = postsum[i] + window_calc_minsize(sp->chs.v[i - 1].win).x + 1;
         sum_size = sp->w;
         for (int i = 0; i < sp->chs.len - 1; i++) {
             window *ch = sp->chs.v[i].win;
             int min_size = window_calc_minsize(ch).x;
             int max_size = sum_size - postsum[i + 1] - 1;
             max_size = max(0, max_size);
-            int new_size =
-                min(max_size, max(min_size, (int)(sp->w * sp->chs.v[i].ratio)));
+            int new_size = min(max_size, max(min_size, (int)(sp->w * sp->chs.v[i].ratio)));
             sum_size -= new_size + 1;
             window_moveresize(ch, sp->t, sp->l + pos, sp->h, new_size);
             pos += new_size + 1;
         }
-        window_moveresize(seq_end(sp->chs).win, sp->t, sp->l + pos, sp->h,
-                          sum_size);
+        window_moveresize(seq_end(sp->chs).win, sp->t, sp->l + pos, sp->h, sum_size);
     }
 }
 
@@ -504,8 +659,7 @@ void split_resize_child(split *sp, int id, int size) {
     if (!sp->is_vsp) {
         map_res(minsizes, window_calc_minsize(sp->chs.v[i].win).y, sp->chs.len);
         size = max(size, minsizes[id]);
-        int lt_minsize = e_sizesum(0, id, minsizes[i]),
-            rb_minsize = e_sizesum(id + 1, sp->chs.len, minsizes[i]);
+        int lt_minsize = e_sizesum(0, id, minsizes[i]), rb_minsize = e_sizesum(id + 1, sp->chs.len, minsizes[i]);
         size = min(size, sp->h - lt_minsize - rb_minsize);
         int size_diff = size - ch->h;
         if (size_diff > 0) {
@@ -537,8 +691,7 @@ void split_resize_child(split *sp, int id, int size) {
     } else { // ？？？怎么还有
         map_res(minsizes, window_calc_minsize(sp->chs.v[i].win).x, sp->chs.len);
         size = max(size, minsizes[id]);
-        int lt_minsize = e_sizesum(0, id, minsizes[i] + 1),
-            rb_minsize = e_sizesum(id + 1, sp->chs.len, minsizes[i] + 1);
+        int lt_minsize = e_sizesum(0, id, minsizes[i] + 1), rb_minsize = e_sizesum(id + 1, sp->chs.len, minsizes[i] + 1);
         size = min(size, sp->w - lt_minsize - rb_minsize);
         int size_diff = size - ch->w;
         if (size_diff > 0) {
@@ -652,18 +805,18 @@ int _window_findselfindex(window *w) {
 // 没想到宏还有此等妙用，让我对Lisp宏更加期待了
 // 2026-6-6
 // 完了，怎么调试啊
-#define gen_window_find(d, drev, d_is_vsp, wfinal, d_op)                       \
-    buffer *window_find_##d(window *w, int y) {                                \
-        if (!w->parent)                                                        \
-            return NULL;                                                       \
-        if (w->parent->is_vsp != d_is_vsp)                                     \
-            return window_find(d, w->parent, y);                               \
-        int idx = _window_findselfindex(w);                                    \
-        if (idx == -1)                                                         \
-            return NULL;                                                       \
-        if (idx == (wfinal))                                                   \
-            return window_find(d, w->parent, y);                               \
-        return window_find(drev, w->parent->chs.v[idx d_op].win, y);           \
+#define gen_window_find(d, drev, d_is_vsp, wfinal, d_op)             \
+    buffer *window_find_##d(window *w, int y) {                      \
+        if (!w->parent)                                              \
+            return NULL;                                             \
+        if (w->parent->is_vsp != d_is_vsp)                           \
+            return window_find(d, w->parent, y);                     \
+        int idx = _window_findselfindex(w);                          \
+        if (idx == -1)                                               \
+            return NULL;                                             \
+        if (idx == (wfinal))                                         \
+            return window_find(d, w->parent, y);                     \
+        return window_find(drev, w->parent->chs.v[idx d_op].win, y); \
     }
 
 gen_window_find(right, front, true, w->parent->chs.len - 1, +1);
@@ -673,18 +826,18 @@ gen_window_find(up, bottom, false, 0, -1);
 
 #undef gen_window_find
 
-#define gen_window_find_in(d, d_is_vsp, wfinal, attr)                          \
-    buffer *window_find_##d(window *_w, int p) {                               \
-        if (_w->is_buf)                                                        \
-            return (buffer *)_w;                                               \
-        split *w = (split *)_w;                                                \
-        if (w->is_vsp != d_is_vsp) {                                           \
-            for (int i = 0; i < w->chs.len - 1; i++)                           \
-                if (w->chs.v[i + 1].win->attr > p)                             \
-                    return window_find(d, w->chs.v[i].win, p);                 \
-            return window_find(d, seq_end(w->chs).win, p);                     \
-        }                                                                      \
-        return window_find(d, w->chs.v[wfinal].win, p);                        \
+#define gen_window_find_in(d, d_is_vsp, wfinal, attr)          \
+    buffer *window_find_##d(window *_w, int p) {               \
+        if (_w->is_buf)                                        \
+            return (buffer *)_w;                               \
+        split *w = (split *)_w;                                \
+        if (w->is_vsp != d_is_vsp) {                           \
+            for (int i = 0; i < w->chs.len - 1; i++)           \
+                if (w->chs.v[i + 1].win->attr > p)             \
+                    return window_find(d, w->chs.v[i].win, p); \
+            return window_find(d, seq_end(w->chs).win, p);     \
+        }                                                      \
+        return window_find(d, w->chs.v[wfinal].win, p);        \
     }
 
 gen_window_find_in(front, true, 0, t);
@@ -732,8 +885,7 @@ void window_resize_bottomup(window *s, int h, int w) {
     split *p = s->parent;
     int minsize = 0;
     if (!p->is_vsp) {
-        minsize =
-            e_sizesum(0, p->chs.len, window_calc_minsize(p->chs.v[i].win).y);
+        minsize = e_sizesum(0, p->chs.len, window_calc_minsize(p->chs.v[i].win).y);
         minsize += h - s_minsize.y;
         if (p->h < minsize)
             window_resize_bottomup((window *)p, minsize, w);
@@ -741,8 +893,7 @@ void window_resize_bottomup(window *s, int h, int w) {
             window_resize_bottomup((window *)p, p->h, w);
         split_resize_child(p, _window_findselfindex(s), h);
     } else {
-        minsize = e_sizesum(0, p->chs.len,
-                            window_calc_minsize(p->chs.v[i].win).x + 1);
+        minsize = e_sizesum(0, p->chs.len, window_calc_minsize(p->chs.v[i].win).x + 1);
         minsize += w - s_minsize.x - 1;
         if (p->w < minsize)
             window_resize_bottomup((window *)p, h, minsize);
@@ -759,6 +910,7 @@ void editor_init(editor *e) {
     e->h = size.y, e->w = size.x;
     e->sps = seq_init(splits);
     e->bufs = seq_init(buffers);
+    e->files = seq_init(filemgrs);
     e->cur = editor_add_buffer(e);
     buffer_init(e->cur, NULL, 0, 0, e->h - 1, e->w);
     e->gwin = (window *)e->cur;
@@ -779,8 +931,11 @@ void editor_free(editor *e) {
         free(e->bufs.v[i]);
     for (size_t i = 0; i < e->sps.len; i++)
         free(e->sps.v[i]);
+    for (size_t i = 0; i < e->files.len; i++)
+        filemgr_free(e->files.v[i]);
     free(e->bufs.v);
     free(e->sps.v);
+    free(e->files.v);
 }
 
 void editor_quit(editor *e) {
@@ -788,8 +943,7 @@ void editor_quit(editor *e) {
 }
 
 void _editor_draw_msg(editor *e) {
-    if (e->cur->mode != M_NORMAL && e->cur->mode != M_COMMAND &&
-        e->cur->mode != M_GETCH) {
+    if (e->cur->mode != M_NORMAL && e->cur->mode != M_COMMAND && e->cur->mode != M_GETCH) {
         if (e->gwin->h != e->h - 1)
             window_resize(e->gwin, e->h - 1, e->w);
         char *mode_str = e_mode_str.v[e->cur->mode];
@@ -800,8 +954,7 @@ void _editor_draw_msg(editor *e) {
         screen_change(&e->scr, e->gwin->h, w++, colortext_normal(' '));
         for (int i = 0; mode_str[i]; i++) {
             int cw = wcwidth(mode_str[i]);
-            screen_change(&e->scr, e->gwin->h, w,
-                          colortext_normal(mode_str[i]));
+            screen_change(&e->scr, e->gwin->h, w, colortext_normal(mode_str[i]));
             w += cw;
         }
         screen_change(&e->scr, e->gwin->h, w++, colortext_normal(' '));
@@ -832,8 +985,7 @@ void _editor_draw_msg(editor *e) {
         }
         if (w + cw > e->w)
             h++, w = 0;
-        screen_change(&e->scr, e->gwin->h + h, w,
-                      colortext_normal(e->msg.v[i]));
+        screen_change(&e->scr, e->gwin->h + h, w, colortext_normal(e->msg.v[i]));
         w += cw;
     }
     if (i == e->msg_x && e->cur->mode == M_COMMAND)
@@ -881,8 +1033,7 @@ void editor_chmod_command(editor *e, e_callback_t cb, void *clos) {
     e->cb_clos = clos;
 }
 
-void editor_chmod_getch(editor *e, e_callback_t cb, void *clos,
-                        bool move_cursor) {
+void editor_chmod_getch(editor *e, e_callback_t cb, void *clos, bool move_cursor) {
     e->cur->mode = M_GETCH;
     e->cb = cb;
     e->cb_clos = clos;
@@ -920,15 +1071,25 @@ buffer *editor_add_buffer(editor *e) {
 
 filemgr *editor_add_file(editor *e) {
     filemgr *file = malloc(sizeof(filemgr));
-    file->is_file = false;
+    file->e = e;
     file->is_sync = false;
     file->sync_time = time(0);
-    file->name = str_init_by_charp("untitled");
+    file->name = seq_init_null(rawstr);
     file->path_mbs = file->name_mbs = NULL;
     text_init(&file->mgr);
     file->ver = file->mgr.undo_cur;
     seq_append(e->files, file);
     return file;
+}
+
+filemgr *editor_find_fm(editor *e, char *path_mbs) {
+    if (!path_mbs)
+        return NULL;
+    for (size_t i = 0; i < e->files.len; i++) {
+        if (e->files.v[i]->path_mbs && !strcmp(e->files.v[i]->path_mbs, path_mbs))
+            return e->files.v[i];
+    }
+    return NULL;
 }
 
 window_vtable winvt_buffer, winvt_split;
@@ -938,13 +1099,11 @@ void init_window_vtable() {
     winvt_buffer.free = (void (*)(window *))buffer_free;
     winvt_buffer.move = (void (*)(window *, int, int))buffer_move;
     winvt_buffer.resize = (void (*)(window *, int, int))buffer_resize;
-    winvt_buffer.moveresize =
-        (void (*)(window *, int, int, int, int))buffer_moveresize;
+    winvt_buffer.moveresize = (void (*)(window *, int, int, int, int))buffer_moveresize;
 
     winvt_split.draw = (void (*)(window *))split_draw;
     winvt_split.free = (void (*)(window *))split_free;
     winvt_split.move = (void (*)(window *, int, int))split_move;
     winvt_split.resize = (void (*)(window *, int, int))split_resize;
-    winvt_split.moveresize =
-        (void (*)(window *, int, int, int, int))split_moveresize;
+    winvt_split.moveresize = (void (*)(window *, int, int, int, int))split_moveresize;
 }

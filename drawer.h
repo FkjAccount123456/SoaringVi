@@ -38,12 +38,10 @@ typedef struct drawer {
 #define dr_line(y) dr->mgr->text.v[y]
 #define dr_at(y, x) dr->mgr->text.v[y].v[x]
 
-#define vscreen_change(Y, X, ch)                                               \
-    screen_change(dr->scr, (Y) + dr->y, (X) + dr->x, ch)
+#define vscreen_change(Y, X, ch) screen_change(dr->scr, (Y) + dr->y, (X) + dr->x, ch)
 
 // 和Buffer一起分配
-void drawer_init(drawer *dr, screen *scr, textmgr *mgr, size_t y, size_t x,
-                 size_t h, size_t w, bool mode);
+void drawer_init(drawer *dr, screen *scr, textmgr *mgr, size_t y, size_t x, size_t h, size_t w, bool mode);
 
 void drawer_set_mgr(drawer *dr, textmgr *mgr);
 void drawer_setcfg(drawer *dr, drawer_config cfg);

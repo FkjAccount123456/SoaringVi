@@ -1,0 +1,13 @@
+alias exfw=extern file write
+
+editor/buffer_writefile
+    name & name~=old:
+        force | ~exist:
+            w; ch fm.name
+        ~:
+            err
+    ~:
+        fmname & (~exfw | force):
+            w
+        ~:
+            err

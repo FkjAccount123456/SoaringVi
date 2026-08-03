@@ -6,8 +6,9 @@
 #define NOINTERFACE
 #include <windows.h>
 #else
-#include <unistd.h>
 #include <sys/ioctl.h>
+#include <unistd.h>
+
 #endif
 
 #include "drawer.h"
@@ -15,7 +16,10 @@
 #include <assert.h>
 #include <wchar.h>
 
-#define colortext_statusline(x) (colortext){.fg = {0, 0, 0}, .bg = {192, 192, 192}, .style = 0, .ch = x}
+#define colortext_statusline(x)                                     \
+    (colortext) {                                                   \
+        .fg = {0, 0, 0}, .bg = {192, 192, 192}, .style = 0, .ch = x \
+    }
 
 int main(int argc, char *argv[]) {
     u_init();

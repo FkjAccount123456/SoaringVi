@@ -1,5 +1,6 @@
 #include "textmgr.h"
 #include <memory.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 
@@ -15,15 +16,34 @@ void text_free(textmgr *mgr) {
     for (size_t i = 0; i < mgr->text.len; i++)
         free(mgr->text.v[i].v);
     free(mgr->text.v);
+    undo_free(&mgr->undo_root);
+}
+
+void undo_free(undo_node *node) {
+    for (size_t i = 0; i < node->next.len; i++)
+        undo_free(&node->next.v[i]);
+    free(node->op.v.v);
+    free(node->next.v);
+    node->next.len = 0;
+}
+
+void text_clear(textmgr *mgr) {
+    for (size_t i = 1; i < mgr->text.len; i++)
+        free(text_line(i).v);
+    text_line(0).len = 0;
+    mgr->text.len = 1;
+
+    for (size_t i = 0; i < mgr->undo_root.next.len; i++)
+        undo_free(&mgr->undo_root.next.v[i]);
+    mgr->undo_root.next.len = 0;
+    mgr->undo_cur = &mgr->undo_root;
 }
 
 void text_add_history(textmgr *mgr, edit_history op, bool pass_ownership) {
     time_t t;
     time(&t);
-    if (mgr->undo_cur->next.len == 0 && t - mgr->undo_cur->time <= 1 &&
-        op.v.len == 1) {
-        if (mgr->undo_cur->op.tp == OPERT_INSERT && op.tp == OPERT_INSERT &&
-            !coord_cmp(op.l, mgr->undo_cur->op.r) && op.v.v[0] != '\n') {
+    if (mgr->undo_cur->next.len == 0 && t - mgr->undo_cur->time <= 1 && op.v.len == 1) {
+        if (mgr->undo_cur->op.tp == OPERT_INSERT && op.tp == OPERT_INSERT && !coord_cmp(op.l, mgr->undo_cur->op.r) && op.v.v[0] != '\n') {
             seq_append(mgr->undo_cur->op.v, op.v.v[0]);
             mgr->undo_cur->op.r.x += 1;
             mgr->undo_cur->time = t;
@@ -31,8 +51,7 @@ void text_add_history(textmgr *mgr, edit_history op, bool pass_ownership) {
                 free(op.v.v);
             return;
         }
-        if (mgr->undo_cur->op.tp == OPERT_INSERT && op.tp == OPERT_DELETE &&
-            !coord_cmp(op.r, mgr->undo_cur->op.r) && op.v.v[0] != '\n') {
+        if (mgr->undo_cur->op.tp == OPERT_INSERT && op.tp == OPERT_DELETE && !coord_cmp(op.r, mgr->undo_cur->op.r) && op.v.v[0] != '\n') {
             mgr->undo_cur->op.r.x -= 1;
             mgr->undo_cur->op.v.len--;
             mgr->undo_cur->time = t;
@@ -40,8 +59,7 @@ void text_add_history(textmgr *mgr, edit_history op, bool pass_ownership) {
                 free(op.v.v);
             return;
         }
-        if (mgr->undo_cur->op.tp == OPERT_DELETE && op.tp == OPERT_DELETE &&
-            !coord_cmp(op.r, mgr->undo_cur->op.l) && op.v.v[0] != '\n') {
+        if (mgr->undo_cur->op.tp == OPERT_DELETE && op.tp == OPERT_DELETE && !coord_cmp(op.r, mgr->undo_cur->op.l) && op.v.v[0] != '\n') {
             mgr->undo_cur->op.l.x -= 1;
             seq_insert(mgr->undo_cur->op.v, 0, op.v.v, 1);
             mgr->undo_cur->time = t;
@@ -136,8 +154,7 @@ coord text_insert_processed(textmgr *mgr, coord pos, str_list data) {
     // 2026-6-13
     // 经典基础设施出错
     seq_insert(mgr->text, pos.y + 1, data.v + 1, data.len - 1);
-    seq_extend(text_line(pos.y + data.len - 1), &text_at(pos.y, pos.x),
-               text_line(pos.y).len - pos.x);
+    seq_extend(text_line(pos.y + data.len - 1), &text_at(pos.y, pos.x), text_line(pos.y).len - pos.x);
     text_line(pos.y).len = pos.x;
     seq_extend(text_line(pos.y), data.v[0].v, data.v[0].len);
     size_t resx = seq_end(data).len;
@@ -158,19 +175,16 @@ coord text_delete(textmgr *mgr, coord l, coord r) {
     if (!mgr->is_doing)
         text_add_history(mgr, history_new(OPERT_DELETE, l, r, str), true);
     if (l.y == r.y) {
-        memmove(&text_at(l.y, l.x), &text_at(l.y, r.x),
-                (text_line(l.y).len - r.x) * sizeof(char_t));
+        memmove(&text_at(l.y, l.x), &text_at(l.y, r.x), (text_line(l.y).len - r.x) * sizeof(char_t));
         text_line(l.y).len -= r.x - l.x;
         return l;
     }
     seq_expand_to(text_line(l.y), l.x + text_line(r.y).len - r.x);
-    memcpy(&text_at(l.y, l.x), &text_at(r.y, r.x),
-           (text_line(r.y).len - r.x) * sizeof(char_t));
+    memcpy(&text_at(l.y, l.x), &text_at(r.y, r.x), (text_line(r.y).len - r.x) * sizeof(char_t));
     text_line(l.y).len = l.x + text_line(r.y).len - r.x;
     for (size_t i = l.y + 1; i <= r.y; i++)
         free(text_line(i).v);
-    memmove(&text_line(l.y + 1), &text_line(r.y + 1),
-            sizeof(rawstr) * (mgr->text.len - r.y - 1));
+    memmove(&text_line(l.y + 1), &text_line(r.y + 1), sizeof(rawstr) * (mgr->text.len - r.y - 1));
     mgr->text.len -= r.y - l.y;
     return l;
 }
@@ -193,13 +207,71 @@ rawstr text_get(textmgr *mgr, coord l, coord r) {
     return res;
 }
 
+bool text_read(textmgr *mgr, FILE *f) {
+    text_clear(mgr);
+    free(mgr->text.v[0].v);
+    mgr->text.len = 0;
+    rawmbs cache = seq_init(rawmbs);
+    int ch;
+    while (true) {
+        ch = getc(f);
+        if (ch == '\n' || ch == EOF) {
+            rawstr line = seq_init_reserved(rawstr, cache.len);
+            for (size_t i = 0; i < cache.len;) {
+                i += u8_to_c32((unsigned char *)(cache.v + i), line.v + line.len);
+                line.len++;
+            }
+            seq_append(mgr->text, line);
+            if (ch == EOF)
+                break;
+            cache.len = 0;
+        } else {
+            seq_append(cache, ch);
+        }
+    }
+    free(cache.v);
+    if (ferror(f)) {
+        clearerr(f);
+        fclose(f);
+        return false;
+    }
+    fclose(f);
+    return true;
+}
+
+bool text_write(textmgr *mgr, FILE *f) {
+    unsigned char tmp[4];
+    for (size_t i = 0; i < mgr->text.len; i++) {
+        for (size_t j = 0; j < mgr->text.v[i].len; j++) {
+            char fd = u8_from_c32(tmp, text_at(i, j));
+            for (size_t k = 0; k < fd; k++)
+                putc(tmp[k], f);
+        }
+        if (i != mgr->text.len - 1) {
+// #ifndef _WIN32
+            putc('\n', f);
+// #else
+//             putc('\r', f);
+//             putc('\n', f);
+// #endif
+        }
+    }
+    if (ferror(f)) {
+        clearerr(f);
+        fclose(f);
+        return false;
+    }
+    fclose(f);
+    return true;
+}
+
 #ifdef DEBUG_MODE
 
 void text_log(textmgr *mgr) {
     log("text_log:\n");
     for (size_t i = 0; i < mgr->text.len; i++) {
         for (size_t j = 0; j < mgr->text.v[i].len; j++) {
-            log("%lc", mgr->text.v[i].v[j]);
+            log("%lc", (wchar_t)mgr->text.v[i].v[j]);
         }
         log(";%zu\n", mgr->text.v[i].len);
     }

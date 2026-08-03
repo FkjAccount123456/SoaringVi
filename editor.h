@@ -9,8 +9,7 @@
 #define BUFFER_MIN_W 5
 #define BUFFER_MIN_SIZE coord_new(BUFFER_MIN_H, BUFFER_MIN_W)
 
-#define bscreen_change(y, x, c)                                                \
-    screen_change(buf->dr.scr, (y) + buf->t, (x) + buf->l, c)
+#define bscreen_change(y, x, c) screen_change(buf->dr.scr, (y) + buf->t, (x) + buf->l, c)
 
 enum {
     M_NORMAL,
@@ -37,21 +36,20 @@ typedef struct split split;
 typedef struct buffer buffer;
 typedef struct window_vtable window_vtable;
 
-typedef void (*e_callback_t)(editor *, void *);
+typedef void (*e_callback_t)(editor *, void *, size_t);
 
-#define WINDOW_COMMON                                                          \
-    int t, l, h, w;                                                            \
-    editor *e;                                                                 \
-    bool is_buf;                                                               \
-    split *parent;                                                             \
+#define WINDOW_COMMON \
+    int t, l, h, w;   \
+    editor *e;        \
+    bool is_buf;      \
+    split *parent;    \
     window_vtable *vtable
 
 typedef struct window {
     WINDOW_COMMON;
 } window;
 
-#define wscreen_change(W, Y, X, ch)                                            \
-    screen_change(&(W)->e->scr, (Y) + (W)->t, (X) + (W)->l, ch)
+#define wscreen_change(W, Y, X, ch) screen_change(&(W)->e->scr, (Y) + (W)->t, (X) + (W)->l, ch)
 
 // 行吧，这就是多态了
 typedef struct window_vtable {
@@ -66,8 +64,7 @@ typedef struct window_vtable {
 #define window_free(w) (w)->vtable->free((window *)(w))
 #define window_move(w, t, l) (w)->vtable->move((window *)(w), t, l)
 #define window_resize(w, h, x) (w)->vtable->resize((window *)(w), h, x)
-#define window_moveresize(w, t, l, h, x)                                       \
-    (w)->vtable->moveresize((window *)(w), t, l, h, x)
+#define window_moveresize(w, t, l, h, x) (w)->vtable->moveresize((window *)(w), t, l, h, x)
 
 buffer *window_split(window *w, bool is_vsp, bool is_pos_lt);
 buffer *window_find_right(window *w, int y);
@@ -90,7 +87,7 @@ extern window_vtable winvt_split;
 void init_window_vtable();
 
 typedef struct filemgr {
-    bool is_file;
+    editor *e;
     // 用:o/:e打开或确认写入
     bool is_sync;
     undo_node *ver;
@@ -101,7 +98,12 @@ typedef struct filemgr {
     textmgr mgr;
 } filemgr;
 
-void filemgr_open(filemgr *fm, rawstr name);
+void filemgr_open(filemgr *fm, rawstr name, char *name_mbs, char *path_mbs, FILE *f);
+void filemgr_reopen(filemgr *fm);
+void filemgr_write(filemgr *fm, FILE *f, char *name_mbs);
+void filemgr_setname(filemgr *fm, rawstr name, char *name_mbs, char *path_mbs);
+void filemgr_free(filemgr *fm);
+bool filemgr_is_sync(filemgr *fm);
 
 typedef struct buffer {
     WINDOW_COMMON;
@@ -201,19 +203,19 @@ void editor_free(editor *e);
 void editor_quit(editor *e);
 void editor_draw(editor *e);
 bool editor_prockey(editor *e, char_t key);
-void editor_proccmd(editor *e, void *clos);
+void editor_proccmd(editor *e, void *clos, size_t len);
 
 void editor_sendmsg(editor *e, rawstr msg);
 void editor_sendmsg_charp(editor *e, char *msg);
 
 void editor_chmod_command(editor *e, e_callback_t cb, void *clos);
-void editor_chmod_getch(editor *e, e_callback_t cb, void *clos,
-                        bool move_cursor);
+void editor_chmod_getch(editor *e, e_callback_t cb, void *clos, bool move_cursor);
 
 void editor_mainloop(editor *e);
 
 split *editor_add_split(editor *e);
 buffer *editor_add_buffer(editor *e);
 filemgr *editor_add_file(editor *e);
+filemgr *editor_find_fm(editor *e, char *path_mbs);
 
 #endif // EDITOR_H

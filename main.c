@@ -1,12 +1,14 @@
 #include "editor.h"
 #include "utils.h"
+#include "wcwidth/wcwidth.h"
 #ifdef _WIN32
 #define NOMINMAX
 #define NOINTERFACE
 #include <conio.h>
 #else
-#include <unistd.h>
 #include <sys/ioctl.h>
+#include <unistd.h>
+
 #endif
 
 #include <assert.h>

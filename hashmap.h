@@ -8,16 +8,16 @@
 #include <stddef.h>
 
 struct obj_entry {
-  size_t len;
-  size_t hash;
-  char *key;
-  void *val;
+    size_t len;
+    size_t hash;
+    char *key;
+    void *val;
 };
 
 typedef struct hashmap {
-  size_t *table;
-  struct obj_entry *entrys;
-  size_t len, max, mod;
+    size_t *table;
+    struct obj_entry *entrys;
+    size_t len, max, mod;
 } hashmap;
 
 #define SHORTSTR_MAX 9
