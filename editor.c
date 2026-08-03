@@ -54,6 +54,52 @@ void buffer_moveresize(buffer *buf, int t, int l, int h, int w) {
     buffer_resize(buf, h, w);
 }
 
+void _window_replaceself(window *w, window *new);
+void _split_relay(split *sp);
+
+void buffer_quit(buffer *buf, bool force) {
+    if (buf->parent) {
+        for (size_t i = 0; i < buf->e->bufs.len; i++)
+            if (buf->e->bufs.v[i] == buf)
+                seq_remove(buf->e->bufs, i);
+        if (buf->parent->chs.len == 2) {
+            window *other = buf->parent->chs.v[0].win == (window *)buf ? buf->parent->chs.v[1].win : buf->parent->chs.v[0].win;
+            _window_replaceself((window *)buf->parent, other);
+            other->parent = other->parent->parent;
+            window_moveresize(other, buf->parent->t, buf->parent->l, buf->parent->h, buf->parent->w);
+            for (size_t i = 0; i < buf->e->bufs.len; i++)
+                if (buf->e->sps.v[i] == buf->parent)
+                    seq_remove(buf->e->sps, i);
+            split_free(buf->parent);
+            if (buf == buf->e->cur)
+                buf->e->cur = window_find_back(other, buf->t);
+        } else {
+            size_t id;
+            double ratio;
+            for (size_t i = 0; i < buf->parent->chs.len; i++)
+                if (buf->parent->chs.v[i].win == (window *)buf) {
+                    id = i;
+                    ratio = 1.0f - buf->parent->chs.v[i].ratio;
+                    seq_remove(buf->parent->chs, id);
+                    break;
+                }
+            double sum = 0;
+            for (size_t i = 0; i < buf->parent->chs.len - 1; i++)
+                buf->parent->chs.v[i].ratio /= ratio, sum += buf->parent->chs.v[i].ratio;
+            seq_end(buf->parent->chs).ratio = 1.0f - sum;
+            _split_relay(buf->parent);
+            if (id >= buf->parent->chs.len)
+                id = buf->parent->chs.len - 1;
+            if (buf == buf->e->cur)
+                buf->e->cur = window_find_back(buf->parent->chs.v[id].win, buf->t);
+            buffer_free(buf);
+            free(buf);
+        }
+    } else {
+        editor_quit(buf->e, force);
+    }
+}
+
 #define colortext_statusline(x)                                     \
     (colortext) {                                                   \
         .fg = {0, 0, 0}, .bg = {192, 192, 192}, .style = 0, .ch = x \
@@ -63,12 +109,22 @@ void _buffer_draw_modeline(buffer *buf) {
     for (int i = 0; i < buf->w; i++)
         bscreen_change(buf->h - 1, i, colortext_statusline(L' '));
     if (buf->fm->name.len) {
-        for (int i = 0; i < buf->fm->name.len; i++)
+        int i = 0;
+        for (i = 0; i < buf->fm->name.len; i++)
             bscreen_change(buf->h - 1, i + 1, colortext_statusline(buf->fm->name.v[i]));
+        char s[] = " [+]";
+        char j = 0;
+        for (; s[j]; i++, j++)
+            bscreen_change(buf->h - 1, i + 1, colortext_statusline(s[j]));
     } else {
-        char s[] = "untitled";
-        for (int i = 0; s[i]; i++)
-            bscreen_change(buf->h - 1, i + 1, colortext_statusline(s[i]));
+        char s[] = "untitled [+]";
+        int i;
+        if (buf->mgr->undo_cur != buf->fm->ver)
+            for (i = 0; s[i]; i++)
+                bscreen_change(buf->h - 1, i + 1, colortext_statusline(s[i]));
+        else
+            for (i = 0; s[i] != ' '; i++)
+                bscreen_change(buf->h - 1, i + 1, colortext_statusline(s[i]));
     }
 }
 
@@ -495,6 +551,8 @@ bool editor_prockey(editor *e, char_t key) {
 bool _streq_32_8(char_t *s, char *x, size_t len) {
     if (len == 0 && x && *x)
         return false;
+    if (x[len])
+        return false;
     for (size_t i = 0; i < len; i++) {
         if (s[i] != x[i])
             return false;
@@ -517,8 +575,14 @@ void editor_proccmd(editor *e, void *clos, size_t len) {
     char_t *head = cmd + i, *arg = cmd + k;
     int head_len = j - i, arg_len = l - k;
 #define match(x) _streq_32_8(head, x, head_len)
-    if (match("q")) {
-        editor_quit(e);
+    if (match("qa")) {
+        editor_quit(e, 0);
+    } else if (match("qa!")) {
+        editor_quit(e, 1);
+    } else if (match("q")) {
+        buffer_quit(e->cur, 0);
+    } else if (match("q!")) {
+        buffer_quit(e->cur, 1);
     } else if (match("e") || match("o")) {
         rawstr name = seq_from_slice(rawstr, arg, arg_len);
         buffer_openfile(e->cur, name, false);
@@ -938,7 +1002,21 @@ void editor_free(editor *e) {
     free(e->files.v);
 }
 
-void editor_quit(editor *e) {
+void editor_quit(editor *e, bool force) {
+    if (!force) {
+        if (e->cur->fm->ver != e->cur->mgr->undo_cur) {
+            editor_sendmsg_charp(e, "File unsaved, use q! to quit or :w to save");
+            return;
+        }
+        for (size_t i = 0; i < e->files.len; i++) {
+            filemgr *fm = e->files.v[i];
+            if (fm->ver != fm->mgr.undo_cur) {
+                buffer_openfile_byfm(e->cur, fm);
+                editor_sendmsg_charp(e, "File unsaved, use q! to quit or :w to save");
+                return;
+            }
+        }
+    }
     e->running = false;
 }
 

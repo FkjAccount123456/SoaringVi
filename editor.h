@@ -126,6 +126,7 @@ void buffer_free(buffer *buf);
 void buffer_move(buffer *buf, int t, int l);
 void buffer_resize(buffer *buf, int h, int w);
 void buffer_moveresize(buffer *buf, int t, int l, int h, int w);
+void buffer_quit(buffer *buf, bool force);
 
 #define buffer_calc_cursor(buf) drawer_setcursor(&(buf)->dr, (buf)->y, (buf)->x)
 
@@ -200,7 +201,8 @@ typedef struct editor {
 void editor_init(editor *e);
 void editor_free(editor *e);
 
-void editor_quit(editor *e);
+void editor_quit(editor *e, bool force);
+
 void editor_draw(editor *e);
 bool editor_prockey(editor *e, char_t key);
 void editor_proccmd(editor *e, void *clos, size_t len);

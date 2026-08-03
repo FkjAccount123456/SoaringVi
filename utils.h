@@ -120,11 +120,11 @@
         name.len += _S_n;                                    \
     } while (0)
 
-#define seq_remove(name, _i)                                            \
-    do {                                                                \
-        typeof(_i) _S_i = _i;                                           \
-        memmove(name.v + _S_i, name.v + _S_i + 1, name.len - 1 - _S_i); \
-        name.len--;                                                     \
+#define seq_remove(name, _i)                                                           \
+    do {                                                                               \
+        typeof(_i) _S_i = _i;                                                          \
+        memmove(name.v + _S_i, name.v + _S_i + 1, (name.len - 1 - _S_i) * name.Tsize); \
+        name.len--;                                                                    \
     } while (0)
 
 #define seq_pop(name) (name.v[--name.len])

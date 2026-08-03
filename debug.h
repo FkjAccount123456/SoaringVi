@@ -4,7 +4,7 @@
 #define DEBUG_MODE
 #define DEBUG_NOMEMLOG
 
-// #undef DEBUG_MODE
+#undef DEBUG_MODE
 
 #ifdef DEBUG_MODE
 
