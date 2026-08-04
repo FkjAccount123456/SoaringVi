@@ -225,6 +225,7 @@ bool text_read(textmgr *mgr, FILE *f) {
             if (ch == EOF)
                 break;
             cache.len = 0;
+        } else if (ch == '\r') {
         } else {
             seq_append(cache, ch);
         }

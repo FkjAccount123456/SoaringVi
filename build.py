@@ -3,6 +3,10 @@ import sys
 
 fdata = hdata = ""
 
+def system(x):
+    print(x)
+    os.system(x)
+
 def proc_wcwidth():
     global fdata, hdata
     with open("wcwidth/wcwidth.h", "r") as f:
@@ -43,6 +47,8 @@ for i in os.listdir("."):
 opts = []
 if "--debug" in sys.argv:
     opts.append("-O0 -g")
+elif "--perfdbg" in sys.argv:
+    opts.append("-pg -no-pie")
 elif "--check" in sys.argv:
     opts.append("-fsyntax-only")
 elif "--procwcwidth" in sys.argv:
@@ -50,7 +56,7 @@ elif "--procwcwidth" in sys.argv:
 else:
     opts.append("-O3")
 
-os.system("gcc " + " ".join(opts) + " " + " ".join(all_src) + " -o srvi")
+system("gcc " + " ".join(opts) + " " + " ".join(all_src) + " -o srvi")
 
 if sys.platform == "win32":
     postproc_wcwidth()

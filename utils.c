@@ -2,9 +2,9 @@
 #include "wcwidth/wcwidth.h"
 #include <locale.h>
 #include <stdio.h>
-#include <wchar.h>
-#include <time.h>
 #include <sys/stat.h>
+#include <time.h>
+#include <wchar.h>
 
 #ifdef _WIN32
 #include <conio.h>
@@ -18,6 +18,7 @@
 #endif
 
 char u_obuf[U_OBUF_SIZE];
+size_t u_obuf_cur = 0;
 #ifndef _WIN32
 char u_ibuf = 0;
 #endif
@@ -37,6 +38,17 @@ trie u_ch2keymap;
 bool u_ch2keymap_inited = false;
 
 char_t u_cur_keyenum = K_UNKNOWN;
+
+void flush() {
+#ifndef _WIN32
+    write(stdout, u_obuf, u_obuf_cur);
+#else
+    DWORD written;
+    WriteConsoleA(u_hStdOut, u_obuf, u_obuf_cur, &written, NULL);
+#endif
+    u_obuf_cur = 0;
+    u_obuf[0] = 0;
+}
 
 void u_init_term() {
 #ifndef _WIN32
@@ -77,7 +89,7 @@ void u_init() {
     u_init_log();
 #endif
 
-    setvbuf(stdout, u_obuf, _IOFBF, U_OBUF_SIZE);
+    setvbuf(stdout, u_obuf, _IONBF, 0);
     flush();
 
     u_init_ch2keymap();
@@ -121,26 +133,19 @@ void u_fina_log() {
 #endif // DEBUG_MODE
 
 void gotoxy(size_t y, size_t x) {
-    printf("\x1b[%zu;%zuf", y + 1, x + 1);
+    u_procsnprintf(snprintf, "\x1b[%zu;%zuf", y + 1, x + 1);
 }
 
 bool cotext_eq(colortext a, colortext b) {
-    return a.bg[0] == b.bg[0] && a.bg[1] == b.bg[1] && a.bg[2] == b.bg[2] &&
-           a.fg[0] == b.fg[0] && a.fg[1] == b.fg[1] && a.fg[2] == b.fg[2] &&
-           a.style == b.style && a.ch == b.ch;
+    return !memcmp(&a, &b, sizeof(colortext));
 }
 
 bool color_eq(colortext a, colortext b) {
-    return a.bg[0] == b.bg[0] && a.bg[1] == b.bg[1] && a.bg[2] == b.bg[2] &&
-           a.fg[0] == b.fg[0] && a.fg[1] == b.fg[1] && a.fg[2] == b.fg[2] &&
-           a.style == b.style;
+    return !memcmp(&a, &b, sizeof(colortext) - sizeof(char_t));
 }
 
 void cotext_print(colortext c) {
-    printf("\x1b[");
-    printf("%s", u_style_map[c.style]);
-    printf("38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm", c.fg[0], c.fg[1], c.fg[2],
-           c.bg[0], c.bg[1], c.bg[2]);
+    u_procsnprintf(snprintf, "\x1b[%s38;2;%d;%d;%dm\x1b[48;2;%d;%d;%dm", u_style_map[c.style], c.fg[0], c.fg[1], c.fg[2], c.bg[0], c.bg[1], c.bg[2]);
     putchar_c32(c.ch);
 }
 
@@ -153,8 +158,7 @@ void u_init_ch2keymap() {
         trie_init(&u_ch2keymap);
         u_ch2keymap_inited = true;
     }
-#define A(K, V)                                                                \
-    trie_insert(&u_ch2keymap, (unsigned char *)K, convert(void *, V))
+#define A(K, V) trie_insert(&u_ch2keymap, (unsigned char *)K, convert(void *, V))
     A("\x1d", K_C_RSQBR);
     A("\x1c", K_C_BACKSLASH);
     A("\x1f", K_C_SLASH);
@@ -407,8 +411,7 @@ char_t u_getch() {
     } else if (mbrlen((char *)&ch, 1, &u_mbstate) == (size_t)-2) {
         wchar_t res = 0;
         ch = u_basic_getch();
-        while (mbrtowc((wchar_t *)&res, (char *)&ch, 1, &u_mbstate) ==
-               (size_t)-2)
+        while (mbrtowc((wchar_t *)&res, (char *)&ch, 1, &u_mbstate) == (size_t)-2)
             ch = u_basic_getch();
         return res ? res : K_UNKNOWN;
 #else
@@ -488,16 +491,18 @@ rawstr str_init_by_charp(char *b) {
 
 void putchar_c32(char_t ch) {
 #ifndef _WIN32
-    putwchar(ch);
+    u_procsnprintf(snprintf, "%lc", (wchar_t)ch);
 #else
     static wchar_t u16[2];
     static DWORD written;
     switch (u16_from_c32(ch, u16)) {
     case 2:
-        WriteConsoleW(u_hStdOut, u16, 2, &written, NULL);
+        if (U_OBUF_SIZE - u_obuf_cur <= 4)
+            flush();
+        WideCharToMultiByte(CP_THREAD_ACP, 0, u16, 2, u_obuf + u_obuf_cur, 4, NULL, NULL);
         break;
     case 1:
-        wprintf(L"%lc", ch);
+        u_procsnprintf(snprintf, "%lc", (wchar_t)ch);
         break;
     }
 #endif

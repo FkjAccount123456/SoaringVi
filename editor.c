@@ -241,7 +241,7 @@ bool editor_prockey(editor *e, char_t key) {
                 e->msg.len = 0;
                 e->cur->mode = M_NORMAL;
             }
-        } else if (isprintable(key) || key > 128 && key <= 0x10FFFF && wcwidth(key)) {
+        } else if (isprintable(key) && key != '\t' || key > 128 && key <= 0x10FFFF && wcwidth(key)) {
             seq_insert(e->msg, e->msg_x, &key, 1);
             e->msg_x++;
         } else {

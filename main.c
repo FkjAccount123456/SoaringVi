@@ -1,6 +1,5 @@
 #include "editor.h"
 #include "utils.h"
-#include "wcwidth/wcwidth.h"
 #ifdef _WIN32
 #define NOMINMAX
 #define NOINTERFACE

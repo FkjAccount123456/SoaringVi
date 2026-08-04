@@ -155,6 +155,22 @@ typedef struct seq(char) rawmbs;
 
 #define U_OBUF_SIZE 65536
 
+extern char u_obuf[];
+extern size_t u_obuf_cur;
+
+void flush();
+
+#define u_procsnprintf(FN, ...)                                                           \
+    do {                                                                                  \
+        int fd = FN(u_obuf + u_obuf_cur, U_OBUF_SIZE - u_obuf_cur, __VA_ARGS__);          \
+        if (fd >= U_OBUF_SIZE - u_obuf_cur) {                                             \
+            flush();                                                                      \
+            u_obuf_cur += FN(u_obuf + u_obuf_cur, U_OBUF_SIZE - u_obuf_cur, __VA_ARGS__); \
+        } else {                                                                          \
+            u_obuf_cur += fd;                                                             \
+        }                                                                                 \
+    } while (0)
+
 extern mbstate_t u_mbstate;
 
 void u_init();
@@ -162,8 +178,6 @@ void u_fina();
 
 // 从0开始
 void gotoxy(size_t y, size_t x);
-
-#define flush() fflush(stdout)
 
 #define STYLE_BOLD 1
 #define STYLE_ITALIC 2
