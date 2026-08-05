@@ -108,6 +108,19 @@
         name.len += _S_n;                                                                   \
     } while (0)
 
+#define seq_insert_nofill(name, _idx, _n)                                                   \
+    do {                                                                                    \
+        typeof(_idx) _S_idx = _idx;                                                         \
+        typeof(_n) _S_n = _n;                                                               \
+        if (name.len + _S_n > name.max) {                                                   \
+            while (name.len + _S_n > name.max)                                              \
+                name.max <<= 1;                                                             \
+            name.v = realloc(name.v, name.Tsize * name.max);                                \
+        }                                                                                   \
+        memmove(name.v + _S_idx + _S_n, name.v + _S_idx, (name.len - _S_idx) * name.Tsize); \
+        name.len += _S_n;                                                                   \
+    } while (0)
+
 #define seq_extend(name, src, _n)                            \
     do {                                                     \
         typeof(_n) _S_n = _n;                                \
@@ -188,6 +201,8 @@ typedef struct colortext {
     char style;
     char_t ch;
 } colortext;
+
+colortext cotext_new(unsigned int fg, unsigned int bg, char style, char_t ch);
 
 bool cotext_eq(colortext a, colortext b);
 bool color_eq(colortext a, colortext b);

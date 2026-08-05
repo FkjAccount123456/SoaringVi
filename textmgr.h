@@ -1,6 +1,7 @@
 #ifndef TEXTMGR_H
 #define TEXTMGR_H
 
+#include "syntax.h"
 #include "utils.h"
 
 #define OPERT_NOP 0
@@ -47,11 +48,13 @@ typedef struct textmgr {
     undo_node undo_root;
     undo_node *undo_cur;
     bool is_doing;
+
+    renderer z;
 } textmgr;
 
 int coord_cmp(coord a, coord b);
 
-void text_init(textmgr *mgr);
+void text_init(textmgr *mgr, char *file);
 void text_free(textmgr *mgr);
 
 void text_clear(textmgr *mgr);
@@ -67,8 +70,8 @@ coord text_insert_processed(textmgr *mgr, coord pos, str_list data);
 coord text_delete(textmgr *mgr, coord l, coord r);
 rawstr text_get(textmgr *mgr, coord l, coord r);
 
-bool text_read(textmgr *mgr, FILE *f);
-bool text_write(textmgr *mgr, FILE *f);
+bool text_read(textmgr *mgr, FILE *f, char *file);
+bool text_write(textmgr *mgr, FILE *f, char *file);
 
 #define text_line(y) mgr->text.v[y]
 #define text_at(y, x) mgr->text.v[y].v[x]

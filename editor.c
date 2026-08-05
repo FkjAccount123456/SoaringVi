@@ -463,7 +463,7 @@ filemgr *editor_add_file(editor *e) {
     file->sync_time = time(0);
     file->name = seq_init_null(rawstr);
     file->path_mbs = file->name_mbs = NULL;
-    text_init(&file->mgr);
+    text_init(&file->mgr, NULL);
     file->ver = file->mgr.undo_cur;
     seq_append(e->files, file);
     return file;

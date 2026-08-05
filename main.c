@@ -1,3 +1,4 @@
+#include "colorscheme.h"
 #include "editor.h"
 #include "utils.h"
 #ifdef _WIN32
@@ -14,6 +15,7 @@
 
 int main(int argc, char *argv[]) {
     u_init();
+    color_init();
     init_window_vtable();
     e_mode_init();
 

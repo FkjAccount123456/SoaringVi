@@ -1,4 +1,5 @@
 #include "drawer.h"
+#include "colorscheme.h"
 #include "wcwidth/wcwidth.h"
 
 void drawer_init(drawer *dr, screen *scr, textmgr *mgr, size_t y, size_t x, size_t h, size_t w, bool mode) {
@@ -128,10 +129,6 @@ void _d_fill_lntext(char *t, size_t w, size_t num) {
         t[i] = ' ';
 }
 
-#define colortext_normal(c) (colortext){.ch = c, .bg = {0, 0, 0}, .fg = {192, 192, 192}, .style = 0}
-
-#define colortext_selected(c) (colortext){.ch = c, .bg = {96, 96, 96}, .fg = {192, 192, 192}, .style = 0}
-
 char d_linum_text[32];
 
 // 很抱歉，但又是一坨
@@ -143,25 +140,20 @@ void drawer_draw(drawer *dr, bool is_sel, coord sel_r) {
     coord sel_l = dr->cursor;
     if (is_sel && coord_cmp(sel_l, sel_r) > 0)
         swap(sel_l, sel_r);
-#define colortext_auto(c)                                                                                                  \
-    ({                                                                                                                     \
-        coord pos = coord_new(y, x);                                                                                       \
-        (is_sel && coord_cmp(sel_l, pos) <= 0 && coord_cmp(pos, sel_r) < 0) ? colortext_selected(c) : colortext_normal(c); \
-    })
 
     if (dr->cfg.mode == DRAWER_MODE_HSCROLL) {
         for (size_t i = 0; i < dr->h; i++) {
             size_t y = dr->vscroll.y + i;
             if (y >= dr->mgr->text.len) {
                 for (size_t vx = 0; vx < dr->full_w; vx++)
-                    vscreen_change(i, vx, colortext_normal(L' '));
+                    vscreen_change(i, vx, color_get(&color_quiet, ' ', CT_TEXT, 0));
                 continue;
             }
             size_t x = 0, w = 0, vx = 0;
             if (dr->linum_w) {
                 _d_fill_lntext(d_linum_text, dr->linum_w, y + 1);
                 for (; vx < dr->linum_w; vx++)
-                    vscreen_change(i, vx, colortext_normal(d_linum_text[vx]));
+                    vscreen_change(i, vx, color_get(&color_quiet, d_linum_text[vx], CTE_LINENUM, 0));
             }
             char cur_w = 0;
             if (w < dr->hscroll)
@@ -175,26 +167,30 @@ void drawer_draw(drawer *dr, bool is_sel, coord sel_r) {
                 }
             if (x >= dr_line(y).len) {
                 for (; vx < dr->full_w; vx++)
-                    vscreen_change(i, vx, colortext_normal(L' '));
+                    vscreen_change(i, vx, color_get(&color_quiet, ' ', CT_TEXT, 0));
                 continue;
             }
             size_t tgt = w + cur_w;
             w = dr->hscroll;
             for (; w < tgt; vx++, w++)
-                vscreen_change(i, vx, colortext_normal(L'<'));
+                vscreen_change(i, vx, color_get(&color_quiet, '<', CT_TEXT, 0));
             for (; x < dr_line(y).len; x++) {
                 cur_w = wcwidth(dr_line(y).v[x]);
                 if (w + cur_w > dr->hscroll + dr->w)
                     break;
-                vscreen_change(i, vx, colortext_auto(dr_at(y, x)));
+                coord pos = {y, x};
+                if (is_sel && coord_cmp(sel_l, pos) <= 0 && coord_cmp(pos, sel_r) < 0)
+                    vscreen_change(i, vx, color_get(&color_quiet, dr_at(y, x), CT_TEXT, 1));
+                else
+                    vscreen_change(i, vx, color_get(&color_quiet, dr_at(y, x), CT_TEXT, 0));
                 w += cur_w, vx += cur_w;
             }
             if (x < dr_line(y).len)
                 for (; vx < dr->full_w; vx++)
-                    vscreen_change(i, vx, colortext_normal(L'>'));
+                    vscreen_change(i, vx, color_get(&color_quiet, '>', CT_TEXT, 0));
             else
                 for (; vx < dr->full_w; vx++)
-                    vscreen_change(i, vx, colortext_normal(L' '));
+                    vscreen_change(i, vx, color_get(&color_quiet, ' ', CT_TEXT, 0));
         }
         return;
     }
@@ -217,7 +213,7 @@ void drawer_draw(drawer *dr, bool is_sel, coord sel_r) {
     while (vy < dr->h) {
         if (y >= dr->mgr->text.len) {
             for (size_t i = 0; i < dr->full_w; i++) {
-                vscreen_change(vy, i, colortext_normal(L' '));
+                vscreen_change(vy, i, color_get(&color_quiet, ' ', CT_TEXT, 0));
             }
             vy++;
             continue;
@@ -225,10 +221,10 @@ void drawer_draw(drawer *dr, bool is_sel, coord sel_r) {
         if (h == 0 && dr->cfg.linum) {
             _d_fill_lntext(d_linum_text, dr->linum_w, y + 1);
             for (size_t i = 0; i < dr->linum_w; i++)
-                vscreen_change(vy, i, colortext_normal(d_linum_text[i]));
+                vscreen_change(vy, i, color_get(&color_quiet, d_linum_text[i], CTE_LINENUM, 0));
         } else if (dr->cfg.linum) {
             for (size_t i = 0; i < dr->linum_w; i++)
-                vscreen_change(vy, i, colortext_normal(L' '));
+                vscreen_change(vy, i, color_get(&color_quiet, ' ', CT_TEXT, 0));
         }
         w = 0;
         for (; x < dr_line(y).len; x++) {
@@ -237,11 +233,15 @@ void drawer_draw(drawer *dr, bool is_sel, coord sel_r) {
                 h++;
                 break;
             }
-            vscreen_change(vy, w + dr->linum_w, colortext_auto(dr_at(y, x)));
+            coord pos = {y, x};
+            if (is_sel && coord_cmp(sel_l, pos) <= 0 && coord_cmp(pos, sel_r) < 0)
+                vscreen_change(vy, w + dr->linum_w, color_get(&color_quiet, dr_at(y, x), CT_TEXT, 1));
+            else
+                vscreen_change(vy, w + dr->linum_w, color_get(&color_quiet, dr_at(y, x), CT_TEXT, 0));
             w += cur_w;
         }
         while (w + dr->linum_w < dr->full_w) {
-            vscreen_change(vy, w + dr->linum_w, colortext_normal(L' '));
+            vscreen_change(vy, w + dr->linum_w, color_get(&color_quiet, ' ', CT_TEXT, 0));
             w++;
         }
         if (x >= dr_line(y).len) {

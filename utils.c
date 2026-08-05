@@ -136,6 +136,14 @@ void gotoxy(size_t y, size_t x) {
     u_procsnprintf(snprintf, "\x1b[%zu;%zuf", y + 1, x + 1);
 }
 
+colortext cotext_new(unsigned int fg, unsigned int bg, char style, char_t ch) {
+    colortext x;
+    x.fg[0] = (fg >> 16) & 0xFF, x.fg[1] = (fg >> 8) & 0xFF, x.fg[2] = fg & 0xFF;
+    x.bg[0] = (bg >> 16) & 0xFF, x.bg[1] = (bg >> 8) & 0xFF, x.bg[2] = bg & 0xFF;
+    x.style = style, x.ch = ch;
+    return x;
+}
+
 bool cotext_eq(colortext a, colortext b) {
     return !memcmp(&a, &b, sizeof(colortext));
 }

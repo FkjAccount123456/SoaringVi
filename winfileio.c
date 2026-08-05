@@ -10,7 +10,7 @@ void filemgr_open(filemgr *fm, rawstr name, char *name_mbs, char *path_mbs, FILE
     if (!f) {
         fm->is_sync = false;
     } else {
-        if (!fm->path_mbs || !text_read(&fm->mgr, f)) {
+        if (!fm->path_mbs || !text_read(&fm->mgr, f, name_mbs)) {
             editor_sendmsg_charp(fm->e, "Failed to read file");
             fm->is_sync = false;
         } else {
@@ -29,7 +29,7 @@ void filemgr_reopen(filemgr *fm) {
         return;
     }
     FILE *f = fopen(fm->name_mbs, "r");
-    if (!f || !text_read(&fm->mgr, f)) {
+    if (!f || !text_read(&fm->mgr, f, fm->name_mbs)) {
         editor_sendmsg_charp(fm->e, "Failed to read file");
         fm->is_sync = false;
     } else {
@@ -40,7 +40,7 @@ void filemgr_reopen(filemgr *fm) {
 }
 
 void filemgr_write(filemgr *fm, FILE *f, char *name_mbs) {
-    if (text_write(&fm->mgr, f)) {
+    if (text_write(&fm->mgr, f, name_mbs)) {
         fm->is_sync = true;
         fm->sync_time = get_file_updtime(name_mbs);
     } else {

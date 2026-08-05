@@ -4,12 +4,14 @@
 #include <stdlib.h>
 #include <time.h>
 
-void text_init(textmgr *mgr) {
+void text_init(textmgr *mgr, char *path) {
     mgr->text = seq_init(str_list);
     seq_append(mgr->text, seq_init(rawstr));
 
     undo_node_init(&mgr->undo_root, history_nop(), NULL);
     mgr->undo_cur = &mgr->undo_root;
+
+    renderer_init(&mgr->z, mgr, path);
 }
 
 void text_free(textmgr *mgr) {
@@ -147,6 +149,7 @@ coord text_insert_processed(textmgr *mgr, coord pos, str_list data) {
     if (data.len == 1) {
         size_t len = data.v[0].len;
         seq_insert(text_line(pos.y), pos.x, data.v[0].v, len);
+        renderer_insert(&mgr->z, pos, data);
         free(data.v[0].v);
         free(data.v);
         return coord_new(pos.y, pos.x + len);
@@ -157,6 +160,7 @@ coord text_insert_processed(textmgr *mgr, coord pos, str_list data) {
     seq_extend(text_line(pos.y + data.len - 1), &text_at(pos.y, pos.x), text_line(pos.y).len - pos.x);
     text_line(pos.y).len = pos.x;
     seq_extend(text_line(pos.y), data.v[0].v, data.v[0].len);
+    renderer_insert(&mgr->z, pos, data);
     size_t resx = seq_end(data).len;
     free(data.v[0].v);
     free(data.v);
@@ -177,6 +181,7 @@ coord text_delete(textmgr *mgr, coord l, coord r) {
     if (l.y == r.y) {
         memmove(&text_at(l.y, l.x), &text_at(l.y, r.x), (text_line(l.y).len - r.x) * sizeof(char_t));
         text_line(l.y).len -= r.x - l.x;
+        renderer_delete(&mgr->z, l, r);
         return l;
     }
     seq_expand_to(text_line(l.y), l.x + text_line(r.y).len - r.x);
@@ -186,6 +191,7 @@ coord text_delete(textmgr *mgr, coord l, coord r) {
         free(text_line(i).v);
     memmove(&text_line(l.y + 1), &text_line(r.y + 1), sizeof(rawstr) * (mgr->text.len - r.y - 1));
     mgr->text.len -= r.y - l.y;
+    renderer_delete(&mgr->z, l, r);
     return l;
 }
 
@@ -207,7 +213,7 @@ rawstr text_get(textmgr *mgr, coord l, coord r) {
     return res;
 }
 
-bool text_read(textmgr *mgr, FILE *f) {
+bool text_read(textmgr *mgr, FILE *f, char *path) {
     text_clear(mgr);
     free(mgr->text.v[0].v);
     mgr->text.len = 0;
@@ -234,13 +240,16 @@ bool text_read(textmgr *mgr, FILE *f) {
     if (ferror(f)) {
         clearerr(f);
         fclose(f);
+        renderer_open(&mgr->z, path, mgr->text);
         return false;
     }
     fclose(f);
+    renderer_open(&mgr->z, path, mgr->text);
     return true;
 }
 
-bool text_write(textmgr *mgr, FILE *f) {
+bool text_write(textmgr *mgr, FILE *f, char *path) {
+    renderer_setname(&mgr->z, path);
     unsigned char tmp[4];
     for (size_t i = 0; i < mgr->text.len; i++) {
         for (size_t j = 0; j < mgr->text.v[i].len; j++) {
@@ -249,12 +258,7 @@ bool text_write(textmgr *mgr, FILE *f) {
                 putc(tmp[k], f);
         }
         if (i != mgr->text.len - 1) {
-// #ifndef _WIN32
             putc('\n', f);
-// #else
-//             putc('\r', f);
-//             putc('\n', f);
-// #endif
         }
     }
     if (ferror(f)) {
